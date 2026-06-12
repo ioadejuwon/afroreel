@@ -11,7 +11,7 @@
       <em>Studio CMS</em>
     </div>
   </div>
-  <button class="mobile-upload-button" type="button">Upload</button>
+  <button class="mobile-upload-button" type="button" data-view-target="episodes" data-focus-target="episode-form">Upload</button>
 </header>
 
 <header class="topbar">
@@ -29,6 +29,6 @@
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <button class="ghost-button" type="submit">Logout</button>
     </form>
-    <button class="primary-button" type="button">Upload Episode</button>
+    <button class="primary-button" type="button" data-view-target="episodes" data-focus-target="episode-form">Upload Episode</button>
   </div>
 </header>

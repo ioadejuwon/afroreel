@@ -16,7 +16,11 @@ const titles = {
   settings: "Settings",
 };
 
-function setView(nextView) {
+function setView(nextView, options = {}) {
+  if (!titles[nextView]) {
+    nextView = "dashboard";
+  }
+
   navItems.forEach((item) => {
     item.classList.toggle("active", item.dataset.view === nextView);
   });
@@ -27,6 +31,14 @@ function setView(nextView) {
 
   if (viewTitle) {
     viewTitle.textContent = titles[nextView] || "Dashboard";
+  }
+
+  if (options.updateHash !== false) {
+    history.replaceState(null, "", `#${nextView}`);
+  }
+
+  if (options.focusTarget) {
+    focusTarget(options.focusTarget);
   }
 }
 
@@ -45,6 +57,22 @@ navItems.forEach((item) => {
     if (window.matchMedia("(max-width: 1080px)").matches) {
       setSidebarOpen(false);
     }
+  });
+});
+
+document.querySelectorAll("[data-view-target]").forEach((button) => {
+  button.addEventListener("click", () => {
+    setView(button.dataset.viewTarget, { focusTarget: button.dataset.focusTarget });
+  });
+});
+
+document.querySelectorAll("[data-focus-target]").forEach((button) => {
+  if (button.dataset.viewTarget) {
+    return;
+  }
+
+  button.addEventListener("click", () => {
+    focusTarget(button.dataset.focusTarget);
   });
 });
 
@@ -96,14 +124,14 @@ document.querySelectorAll("[data-poster-form]").forEach((form) => {
 
 document.querySelectorAll("[data-upload-video]").forEach((button) => {
   button.addEventListener("click", async () => {
-    const row = button.closest("tr");
-    const input = row?.querySelector("[data-video-file]");
-    const status = row?.querySelector("[data-upload-status]");
-    const videoState = row?.querySelector("[data-video-state]");
+    const item = button.closest("[data-episode-id]");
+    const input = item?.querySelector("[data-video-file]");
+    const status = item?.querySelector("[data-upload-status]");
+    const videoState = item?.querySelector("[data-video-state]");
     const file = input?.files?.[0];
-    const episodeId = row?.dataset.episodeId;
+    const episodeId = item?.dataset.episodeId;
 
-    if (!row || !file || !episodeId) {
+    if (!item || !file || !episodeId) {
       alert("Choose a video file first.");
       return;
     }
@@ -113,7 +141,7 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
 
     try {
       const upload = await createTusUpload(episodeId, file);
-      row.dataset.videoUid = upload.uid;
+      item.dataset.videoUid = upload.uid;
       await uploadFileWithTus(upload.uploadUrl, file, (percent) => {
         setStatus(status, `Uploading ${percent}%`);
       });
@@ -132,11 +160,11 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
 
 document.querySelectorAll("[data-refresh-video]").forEach((button) => {
   button.addEventListener("click", async () => {
-    const row = button.closest("tr");
-    const episodeId = row?.dataset.episodeId;
-    const uid = row?.dataset.videoUid;
-    const status = row?.querySelector("[data-upload-status]");
-    const videoState = row?.querySelector("[data-video-state]");
+    const item = button.closest("[data-episode-id]");
+    const episodeId = item?.dataset.episodeId;
+    const uid = item?.dataset.videoUid;
+    const status = item?.querySelector("[data-upload-status]");
+    const videoState = item?.querySelector("[data-video-state]");
 
     if (!episodeId || !uid) {
       return;
@@ -179,6 +207,26 @@ async function createTusUpload(episodeId, file) {
 
 function appUrl(path) {
   return `${basePath}${path}`;
+}
+
+function focusTarget(targetId) {
+  const target = targetId ? document.getElementById(targetId) : null;
+
+  if (!target) {
+    return;
+  }
+
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  target.classList.add("is-highlighted");
+  window.setTimeout(() => target.classList.remove("is-highlighted"), 1100);
+
+  const firstField = target.querySelector("input, select, textarea, button");
+  firstField?.focus({ preventScroll: true });
+}
+
+const initialView = window.location.hash.replace("#", "");
+if (initialView) {
+  setView(initialView, { updateHash: false });
 }
 
 async function uploadFileWithTus(uploadUrl, file, onProgress) {

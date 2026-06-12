@@ -693,9 +693,30 @@ th {
   margin-bottom: 16px;
 }
 
+.split-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .section-note {
   color: var(--muted);
   font-size: 13px;
+}
+
+.form-intro h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.episode-composer {
+  scroll-margin-top: 18px;
+}
+
+.is-highlighted {
+  outline: 2px solid rgba(217, 164, 65, 0.72);
+  outline-offset: 3px;
 }
 
 .content-form {
@@ -749,6 +770,66 @@ th {
   color: var(--muted);
 }
 
+.action-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.action-empty strong {
+  color: var(--text);
+}
+
+.upload-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.episode-upload-list {
+  display: grid;
+  gap: 12px;
+}
+
+.episode-upload-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(260px, 380px) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.episode-main {
+  display: grid;
+  gap: 7px;
+}
+
+.episode-main strong {
+  font-size: 16px;
+}
+
+.episode-kicker,
+.episode-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.episode-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.episode-meta > span:not(.status) {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
 .upload-cell {
   display: grid;
   min-width: 260px;
@@ -757,6 +838,12 @@ th {
 
 .upload-cell input {
   max-width: 260px;
+}
+
+.upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .upload-cell span {
@@ -1066,6 +1153,24 @@ th {
   .poster-grid,
   .content-form {
     grid-template-columns: 1fr;
+  }
+
+  .split-head,
+  .action-empty,
+  .episode-upload-card {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .split-head,
+  .action-empty {
+    flex-direction: column;
+  }
+
+  .upload-cell,
+  .upload-cell input {
+    min-width: 0;
+    max-width: none;
   }
 
   .metric-card {
