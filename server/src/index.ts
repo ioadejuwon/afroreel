@@ -21,6 +21,7 @@ const withBasePath = (basePath: string, route: string): string => (route === "/"
 app.set("view engine", "ejs");
 app.set("views", viewsDir);
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 
 void ensureUploadDirs();
 
