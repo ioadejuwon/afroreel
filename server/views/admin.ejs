@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AfroReel Admin</title>
+    <meta name="csrf-token" content="<%= csrfToken %>" />
+    <link rel="stylesheet" href="/admin/styles.css" />
+  </head>
+  <body>
+    <div class="sidebar-overlay" data-sidebar-overlay></div>
+    <div class="shell">
+      <%- include("partials/layout/sidebar", { admin }) %>
+
+      <main class="workspace">
+        <%- include("partials/layout/topbar", { admin, csrfToken }) %>
+
+        <%- include("partials/views/dashboard") %>
+        <%- include("partials/views/series") %>
+        <%- include("partials/views/episodes") %>
+        <%- include("partials/views/users") %>
+        <%- include("partials/views/monetization") %>
+        <%- include("partials/views/analytics") %>
+        <%- include("partials/views/settings") %>
+      </main>
+    </div>
+
+    <script src="/admin/app.js"></script>
+  </body>
+</html>

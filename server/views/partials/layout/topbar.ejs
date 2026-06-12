@@ -1,0 +1,34 @@
+<header class="mobile-admin-bar" aria-label="Mobile admin bar">
+  <button class="mobile-menu-button" type="button" data-sidebar-toggle aria-controls="admin-sidebar" aria-expanded="false">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+  <div class="mobile-admin-identity">
+    <span class="mobile-avatar"><%= String(admin.name || "A").slice(0, 1).toUpperCase() %></span>
+    <div>
+      <strong><%= admin.name %></strong>
+      <em>Studio CMS</em>
+    </div>
+  </div>
+  <button class="mobile-upload-button" type="button">Upload</button>
+</header>
+
+<header class="topbar">
+  <div>
+    <p class="eyebrow">Content operations</p>
+    <h1 id="view-title">Dashboard</h1>
+  </div>
+  <div class="top-actions">
+    <label class="search">
+      <span>Search</span>
+      <input type="search" placeholder="Series, users, episodes" />
+    </label>
+    <button class="ghost-button" type="button">Export</button>
+    <form class="logout-form" method="post" action="/admin/logout">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <button class="ghost-button" type="submit">Logout</button>
+    </form>
+    <button class="primary-button" type="button">Upload Episode</button>
+  </div>
+</header>

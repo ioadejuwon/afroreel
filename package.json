@@ -1,0 +1,38 @@
+{
+  "name": "afroreel",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/server/src/index.js",
+  "scripts": {
+    "dev": "tsx watch server/src/index.ts",
+    "build": "tsc -p server/tsconfig.json",
+    "start": "node dist/server/src/index.js",
+    "type-check": "tsc -p server/tsconfig.json --noEmit",
+    "test": "npm run type-check"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/csurf": "^1.11.5",
+    "@types/ejs": "^3.1.5",
+    "@types/express": "^5.0.6",
+    "@types/express-session": "^1.19.0",
+    "@types/node": "^25.9.3",
+    "@types/react": "~19.2.14",
+    "tsx": "^4.22.4",
+    "typescript": "~6.0.3"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "csurf": "^1.11.0",
+    "dotenv": "^17.4.2",
+    "ejs": "^6.0.1",
+    "express": "^5.2.1",
+    "express-mysql-session": "^3.0.3",
+    "express-session": "^1.19.0",
+    "mysql2": "^3.22.5"
+  }
+}

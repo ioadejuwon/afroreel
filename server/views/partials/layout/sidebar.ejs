@@ -1,0 +1,25 @@
+<aside class="sidebar" id="admin-sidebar" aria-label="Admin navigation">
+  <div class="brand">
+    <span class="brand-mark">AR</span>
+    <div>
+      <strong>AfroReel</strong>
+      <span>Studio CMS</span>
+    </div>
+  </div>
+
+  <nav class="nav-list">
+    <button class="nav-item active" type="button" data-view="dashboard">Dashboard</button>
+    <button class="nav-item" type="button" data-view="series">Series</button>
+    <button class="nav-item" type="button" data-view="episodes">Episodes</button>
+    <button class="nav-item" type="button" data-view="users">Users</button>
+    <button class="nav-item" type="button" data-view="monetization">Monetization</button>
+    <button class="nav-item" type="button" data-view="analytics">Analytics</button>
+    <button class="nav-item" type="button" data-view="settings">Settings</button>
+  </nav>
+
+  <div class="sidebar-card">
+    <span>Signed in</span>
+    <strong><%= admin.name %></strong>
+    <em><%= admin.email %></em>
+  </div>
+</aside>

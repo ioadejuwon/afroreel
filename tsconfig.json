@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "admin/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "mobile",
+    "backend"
+  ]
+}
