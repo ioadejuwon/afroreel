@@ -3,7 +3,7 @@
     <h2>Episode Configuration</h2>
     <span class="section-note">Videos upload directly to Cloudflare Stream.</span>
   </div>
-  <form class="panel content-form" method="post" action="/admin/episodes">
+  <form class="panel content-form" method="post" action="<%= basePath %>/admin/episodes">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <label>
       <span>Series</span>
@@ -84,7 +84,7 @@
               </div>
             </td>
             <td>
-              <form class="inline-form" method="post" action="/admin/episodes/<%= episode.id %>/status">
+              <form class="inline-form" method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <input type="hidden" name="status" value="<%= episode.status === 'live' ? 'draft' : 'live' %>" />
                 <button class="ghost-button" type="submit"><%= episode.status === 'live' ? 'Draft' : 'Publish' %></button>

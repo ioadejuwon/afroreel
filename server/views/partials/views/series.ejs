@@ -3,7 +3,7 @@
     <h2>Series Library</h2>
     <span class="section-note">Create the show first, then add episodes from the Episodes tab.</span>
   </div>
-  <form class="panel content-form" method="post" action="/admin/series" data-poster-form>
+  <form class="panel content-form" method="post" action="<%= basePath %>/admin/series" data-poster-form>
     <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <input type="hidden" name="posterDataUrl" data-poster-data />
     <label>
@@ -45,7 +45,7 @@
         <% } %>
         <strong><%= item.title %></strong>
         <span><%= item.episode_count %> episodes · <%= item.status %></span>
-        <form class="inline-form" method="post" action="/admin/series/<%= item.id %>/status">
+        <form class="inline-form" method="post" action="<%= basePath %>/admin/series/<%= item.id %>/status">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <input type="hidden" name="status" value="<%= item.status === 'live' ? 'draft' : 'live' %>" />
           <button class="ghost-button" type="submit"><%= item.status === 'live' ? 'Move to Draft' : 'Publish' %></button>

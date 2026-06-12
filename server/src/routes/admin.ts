@@ -17,6 +17,10 @@ import { savePosterDataUrl } from "../uploads";
 
 export const adminRouter = Router();
 
+function adminPath(req: Request, suffix = ""): string {
+  return `${req.baseUrl || "/admin"}${suffix}`;
+}
+
 function renderLogin(req: Request, res: Response, error = ""): void {
   res.render("login", {
     admin: req.admin ?? null,
@@ -27,7 +31,7 @@ function renderLogin(req: Request, res: Response, error = ""): void {
 
 adminRouter.get("/login", (req, res) => {
   if (req.admin) {
-    res.redirect("/admin");
+    res.redirect(adminPath(req));
     return;
   }
 
@@ -52,7 +56,7 @@ adminRouter.post("/login", async (req: Request, res: Response, next: NextFunctio
       }
 
       req.session.adminId = admin.id;
-      res.redirect("/admin");
+      res.redirect(adminPath(req));
     });
   } catch (error) {
     next(error);
@@ -67,7 +71,7 @@ adminRouter.post("/logout", requireAdmin, (req, res, next) => {
     }
 
     res.clearCookie("afroreel_admin");
-    res.redirect("/admin/login");
+    res.redirect(adminPath(req, "/login"));
   });
 });
 
@@ -102,7 +106,7 @@ adminRouter.post("/series", requireAdmin, async (req, res, next) => {
       status: enumBody<SeriesStatus>(req.body.status, ["draft", "live"], "draft"),
     });
 
-    res.redirect("/admin");
+    res.redirect(adminPath(req));
   } catch (error) {
     next(error);
   }
@@ -130,7 +134,7 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
       status: enumBody<EpisodeStatus>(req.body.status, ["draft", "processing", "live"], "draft"),
     });
 
-    res.redirect("/admin");
+    res.redirect(adminPath(req));
   } catch (error) {
     next(error);
   }
@@ -140,7 +144,7 @@ adminRouter.post("/series/:seriesId/status", requireAdmin, async (req, res, next
   try {
     const seriesId = paramNumber(req.params.seriesId);
     await setSeriesStatus(seriesId, enumBody<SeriesStatus>(req.body.status, ["draft", "live"], "draft"));
-    res.redirect("/admin");
+    res.redirect(adminPath(req));
   } catch (error) {
     next(error);
   }
@@ -150,7 +154,7 @@ adminRouter.post("/episodes/:episodeId/status", requireAdmin, async (req, res, n
   try {
     const episodeId = paramNumber(req.params.episodeId);
     await setEpisodeStatus(episodeId, enumBody<EpisodeStatus>(req.body.status, ["draft", "processing", "live"], "draft"));
-    res.redirect("/admin");
+    res.redirect(adminPath(req));
   } catch (error) {
     next(error);
   }

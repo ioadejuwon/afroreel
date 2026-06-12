@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AfroReel Admin</title>
     <meta name="csrf-token" content="<%= csrfToken %>" />
-    <link rel="stylesheet" href="/admin/styles.css" />
+    <link rel="stylesheet" href="<%= basePath %>/admin/styles.css" />
   </head>
   <body>
     <div class="sidebar-overlay" data-sidebar-overlay></div>
@@ -25,6 +25,9 @@
       </main>
     </div>
 
-    <script src="/admin/app.js"></script>
+    <script>
+      window.AFROREEL_BASE_PATH = <%- JSON.stringify(basePath) %>;
+    </script>
+    <script src="<%= basePath %>/admin/app.js"></script>
   </body>
 </html>

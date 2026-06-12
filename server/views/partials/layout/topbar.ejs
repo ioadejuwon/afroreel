@@ -25,7 +25,7 @@
       <input type="search" placeholder="Series, users, episodes" />
     </label>
     <button class="ghost-button" type="button">Export</button>
-    <form class="logout-form" method="post" action="/admin/logout">
+    <form class="logout-form" method="post" action="<%= basePath %>/admin/logout">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <button class="ghost-button" type="submit">Logout</button>
     </form>

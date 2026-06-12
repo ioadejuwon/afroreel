@@ -77,5 +77,5 @@ CREATE TABLE IF NOT EXISTS watch_progress (
 -- php -r 'echo password_hash("your-password", PASSWORD_DEFAULT), PHP_EOL;'
 --
 -- Then create the first admin by replacing the hash below:
--- INSERT INTO admins (name, email, password_hash)
--- VALUES ('Admin', 'admin@example.com', '$2y$12$nj9LV6Ai2sdXnRwrxKYW6OOyUn5r2F11MWj3aMAnD3P0sRzHKySVu');
+INSERT INTO admins (name, email, password_hash)
+VALUES ('Admin', 'admin@example.com', '$2y$12$nj9LV6Ai2sdXnRwrxKYW6OOyUn5r2F11MWj3aMAnD3P0sRzHKySVu');

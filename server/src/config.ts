@@ -28,10 +28,34 @@ function envInt(name: string, defaultValue: number): number {
   return parsed;
 }
 
+function normalizeBasePath(value: string): string {
+  const trimmed = value.trim();
+
+  if (!trimmed || trimmed === "/") {
+    return "";
+  }
+
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withLeadingSlash.replace(/\/+$/, "");
+}
+
+function basePathFromPublicUrl(value: string | undefined): string {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return normalizeBasePath(new URL(value).pathname);
+  } catch {
+    return "";
+  }
+}
+
 export const config = {
   port: envInt("PORT", 3000),
   nodeEnv: process.env.NODE_ENV ?? "development",
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? "",
+  basePath: normalizeBasePath(process.env.APP_BASE_PATH ?? basePathFromPublicUrl(process.env.PUBLIC_BASE_URL)),
   uploadDir: process.env.UPLOAD_DIR ?? "uploads",
   mobileStubUserId: process.env.MOBILE_STUB_USER_ID ?? "demo-user",
   db: {

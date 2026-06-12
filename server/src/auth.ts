@@ -71,7 +71,7 @@ export async function attachCurrentAdmin(req: Request, _res: Response, next: Nex
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   if (!req.admin) {
-    res.redirect("/admin/login");
+    res.redirect(`${req.baseUrl || "/admin"}/login`);
     return;
   }
 

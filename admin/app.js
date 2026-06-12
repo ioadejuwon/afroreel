@@ -4,6 +4,7 @@ const viewTitle = document.querySelector("#view-title");
 const sidebar = document.querySelector("#admin-sidebar");
 const sidebarOverlay = document.querySelector("[data-sidebar-overlay]");
 const sidebarToggles = Array.from(document.querySelectorAll("[data-sidebar-toggle]"));
+const basePath = window.AFROREEL_BASE_PATH || "";
 
 const titles = {
   dashboard: "Dashboard",
@@ -116,7 +117,7 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
       await uploadFileWithTus(upload.uploadUrl, file, (percent) => {
         setStatus(status, `Uploading ${percent}%`);
       });
-      await postJson(`/admin/api/episodes/${episodeId}/cloudflare-complete`, { uid: upload.uid });
+      await postJson(appUrl(`/admin/api/episodes/${episodeId}/cloudflare-complete`), { uid: upload.uid });
       setStatus(status, "Uploaded. Processing...");
       if (videoState) {
         videoState.textContent = "Processing";
@@ -145,7 +146,7 @@ document.querySelectorAll("[data-refresh-video]").forEach((button) => {
     setStatus(status, "Checking Cloudflare...");
 
     try {
-      const video = await postJson(`/admin/api/episodes/${episodeId}/refresh-video`, { uid });
+      const video = await postJson(appUrl(`/admin/api/episodes/${episodeId}/refresh-video`), { uid });
       setStatus(status, video.ready ? "Ready" : "Still processing");
       if (videoState) {
         videoState.textContent = video.ready ? "Ready" : "Processing";
@@ -168,12 +169,16 @@ function readAsDataUrl(file) {
 }
 
 async function createTusUpload(episodeId, file) {
-  return postJson("/admin/api/cloudflare/tus-upload-url", {
+  return postJson(appUrl("/admin/api/cloudflare/tus-upload-url"), {
     episodeId,
     uploadLength: file.size,
     name: file.name,
     maxDurationSeconds: 1800,
   });
+}
+
+function appUrl(path) {
+  return `${basePath}${path}`;
 }
 
 async function uploadFileWithTus(uploadUrl, file, onProgress) {
