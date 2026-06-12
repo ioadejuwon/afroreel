@@ -17,13 +17,29 @@ const MySQLStore = createMySQLSession(session);
 const inferredCpanelBasePath = projectRoot.split(path.sep).includes("public_html") ? `/${path.basename(projectRoot)}` : "";
 const basePaths = Array.from(new Set(["", config.basePath, inferredCpanelBasePath]));
 const withBasePath = (basePath: string, route: string): string => (route === "/" ? basePath || "/" : `${basePath}${route}`);
+const defaultBasePath = config.basePath || inferredCpanelBasePath;
+
+function requestBasePath(originalUrl: string): string {
+  return [...basePaths]
+    .sort((a, b) => b.length - a.length)
+    .find((basePath) => basePath && (originalUrl === basePath || originalUrl.startsWith(`${basePath}/`))) ?? defaultBasePath;
+}
 
 app.set("view engine", "ejs");
 app.set("views", viewsDir);
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
+app.locals.basePath = defaultBasePath;
+app.locals.adminPath = withBasePath(defaultBasePath, "/admin");
 
 void ensureUploadDirs();
+
+app.use((req, res, next) => {
+  const basePath = requestBasePath(req.originalUrl);
+  res.locals.basePath = basePath;
+  res.locals.adminPath = withBasePath(basePath, "/admin");
+  next();
+});
 
 app.use(express.urlencoded({ extended: false, limit: "3mb" }));
 app.use(express.json({ limit: "3mb" }));
@@ -69,12 +85,6 @@ app.use(attachCurrentAdmin);
 
 for (const basePath of basePaths) {
   const adminPath = withBasePath(basePath, "/admin");
-
-  app.use(adminPath, (_req, res, next) => {
-    res.locals.basePath = basePath;
-    res.locals.adminPath = adminPath;
-    next();
-  });
 
   app.get(withBasePath(basePath, "/admin/styles.css"), (_req, res) => {
     res.sendFile(path.join(adminAssetsDir, "styles.css"));
