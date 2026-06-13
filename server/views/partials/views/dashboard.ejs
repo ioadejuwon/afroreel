@@ -1,12 +1,8 @@
 <section class="view active" id="dashboard" aria-label="Dashboard">
   <div class="dashboard-hero">
     <div>
-      <h2>Dashboard</h2>
+      <h2>Hello, <span><%= String(admin.name || "Admin").split(" ")[0] %></span></h2>
       <p>Plan releases, monitor growth, and keep the AfroReel catalog moving.</p>
-    </div>
-    <div class="hero-actions">
-      <button class="primary-button" type="button" data-view-target="episodes" data-focus-target="episode-form">+ Upload Episode</button>
-      <button class="ghost-button" type="button" data-view-target="series">Manage Series</button>
     </div>
   </div>
 

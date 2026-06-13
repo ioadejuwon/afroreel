@@ -1,19 +1,19 @@
 :root {
-  color-scheme: light;
-  --bg: #edf0ed;
-  --surface: #f7f8f6;
-  --panel: #ffffff;
-  --panel-2: #f4f7f3;
-  --line: rgba(23, 45, 35, 0.1);
-  --muted: #7f8a83;
-  --text: #111915;
-  --green: #11633f;
-  --green-2: #258a58;
-  --mint: #dff3e9;
+  color-scheme: dark;
+  --bg: #101110;
+  --surface: #181918;
+  --panel: #242524;
+  --panel-2: #1c1d1c;
+  --line: rgba(255, 255, 255, 0.08);
+  --muted: rgba(255, 255, 255, 0.52);
+  --text: #f5f5f0;
+  --green: #c8ff45;
+  --green-2: #bfff35;
+  --mint: rgba(200, 255, 69, 0.16);
   --gold: #d8a646;
   --red: #d9564f;
-  --blue: #3277b8;
-  --shadow: 0 22px 60px rgba(28, 44, 37, 0.12);
+  --blue: #7c6cf2;
+  --shadow: 0 28px 70px rgba(0, 0, 0, 0.34);
 }
 
 * {
@@ -23,7 +23,10 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px) 0 0 / 42px 42px,
+    radial-gradient(circle at 70% 70%, rgba(200, 255, 69, 0.12), transparent 28%),
+    var(--bg);
   color: var(--text);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -45,8 +48,15 @@ textarea {
   display: grid;
   grid-template-columns: 226px minmax(0, 1fr);
   gap: 14px;
-  min-height: 100vh;
+  width: min(100% - 48px, 1152px);
+  min-height: calc(100vh - 96px);
+  margin: 48px auto;
   padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 36px;
+  background: rgba(22, 23, 22, 0.92);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
 }
 
 .sidebar-overlay {
@@ -69,12 +79,12 @@ textarea {
   position: sticky;
   top: 18px;
   z-index: 50;
-  height: calc(100vh - 36px);
+  height: calc(100vh - 132px);
   padding: 22px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  border-radius: 22px;
-  background: rgba(247, 248, 246, 0.88);
-  box-shadow: var(--shadow);
+  border: 0;
+  border-radius: 24px;
+  background: transparent;
+  box-shadow: none;
   backdrop-filter: blur(18px);
 }
 
@@ -94,7 +104,7 @@ textarea {
   border-radius: 14px;
   background: var(--mint);
   color: var(--green);
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .brand strong,
@@ -110,7 +120,7 @@ textarea {
 
 .nav-label {
   margin: 0 10px 12px;
-  color: #9aa59f;
+  color: rgba(255, 255, 255, 0.36);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.1em;
@@ -133,7 +143,7 @@ textarea {
   border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
-  color: #929c96;
+  color: rgba(255, 255, 255, 0.48);
   text-align: left;
   cursor: pointer;
 }
@@ -150,7 +160,7 @@ textarea {
 .nav-item:hover,
 .nav-item.active {
   border-color: transparent;
-  background: rgba(17, 99, 63, 0.09);
+  background: rgba(255, 255, 255, 0.07);
   color: var(--text);
 }
 
@@ -161,7 +171,7 @@ textarea {
   left: -14px;
   width: 5px;
   border-radius: 0 999px 999px 0;
-  background: var(--green-2);
+  background: var(--green);
   content: "";
 }
 
@@ -174,7 +184,7 @@ textarea {
   padding: 16px;
   border: 0;
   border-radius: 18px;
-  background: #0b3d27;
+  background: rgba(255, 255, 255, 0.07);
   color: #fff;
   overflow: hidden;
 }
@@ -198,7 +208,8 @@ textarea {
 
 .sidebar-card strong {
   margin: 8px 0;
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .meter,
@@ -235,13 +246,13 @@ textarea {
 }
 
 .topbar {
-  min-height: 78px;
-  margin-bottom: 12px;
-  padding: 14px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: 20px;
-  background: rgba(247, 248, 246, 0.9);
-  box-shadow: var(--shadow);
+  min-height: 58px;
+  margin-bottom: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   backdrop-filter: blur(18px);
 }
 
@@ -252,7 +263,7 @@ textarea {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--panel);
+  background: rgba(255, 255, 255, 0.08);
   cursor: pointer;
 }
 
@@ -277,9 +288,9 @@ textarea {
   height: 40px;
   place-items: center;
   border-radius: 8px;
-  background: #e7b7bd;
-  color: #4f1f26;
-  font-weight: 900;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .mobile-admin-identity strong,
@@ -303,8 +314,8 @@ textarea {
   border: 0;
   border-radius: 12px;
   background: var(--green);
-  color: #fff;
-  font-weight: 850;
+  color: #101110;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -325,13 +336,15 @@ p {
 
 h1 {
   margin-bottom: 0;
-  font-size: 24px;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.1;
 }
 
 h2 {
   margin-bottom: 0;
-  font-size: 18px;
+  font-size: 20px;
+  font-weight: 500;
 }
 
 .top-actions {
@@ -363,8 +376,8 @@ h2 {
 .content-form textarea {
   height: 44px;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--panel);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
   color: var(--text);
   outline: none;
 }
@@ -392,8 +405,8 @@ h2 {
 .content-form input:focus,
 .content-form select:focus,
 .content-form textarea:focus {
-  border-color: rgba(17, 99, 63, 0.42);
-  box-shadow: 0 0 0 4px rgba(17, 99, 63, 0.08);
+  border-color: rgba(200, 255, 69, 0.42);
+  box-shadow: 0 0 0 4px rgba(200, 255, 69, 0.08);
 }
 
 .primary-button,
@@ -408,14 +421,14 @@ h2 {
 .primary-button {
   border: 0;
   background: var(--green);
-  color: #fff;
-  font-weight: 850;
-  box-shadow: 0 12px 24px rgba(17, 99, 63, 0.18);
+  color: #101110;
+  font-weight: 600;
+  box-shadow: 0 12px 26px rgba(200, 255, 69, 0.16);
 }
 
 .ghost-button {
   border: 1px solid var(--line);
-  background: var(--panel);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text);
 }
 
@@ -425,7 +438,7 @@ h2 {
   padding: 0;
   place-items: center;
   border: 1px solid transparent;
-  background: var(--panel);
+  background: rgba(255, 255, 255, 0.07);
   color: var(--text);
 }
 
@@ -461,24 +474,28 @@ h2 {
 }
 
 .dashboard-hero {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 14px;
-  padding: 12px 4px 10px;
+  margin-bottom: 30px;
+  padding: 0 4px;
 }
 
 .dashboard-hero h2 {
   margin: 0;
-  font-size: 34px;
-  line-height: 1.1;
+  font-size: clamp(30px, 3.4vw, 40px);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.dashboard-hero h2 span {
+  color: var(--green);
+  font-weight: 400;
 }
 
 .dashboard-hero p:last-child {
   max-width: 620px;
-  margin: 8px 0 0;
+  margin: 12px 0 0;
   color: var(--muted);
+  font-size: 14px;
 }
 
 .hero-actions {
@@ -504,15 +521,17 @@ h2 {
 .series-card {
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--panel);
-  box-shadow: 0 14px 34px rgba(25, 40, 34, 0.07);
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.045), transparent),
+    var(--panel);
+  box-shadow: none;
 }
 
 .metric-card {
-  min-height: 128px;
+  min-height: 154px;
   position: relative;
-  padding: 22px 18px;
+  padding: 28px 24px;
   overflow: hidden;
 }
 
@@ -524,10 +543,10 @@ h2 {
   width: 30px;
   height: 30px;
   place-items: center;
-  border: 1px solid rgba(23, 45, 35, 0.2);
+  border: 0;
   border-radius: 999px;
-  background: var(--panel);
-  color: var(--text);
+  background: #fff;
+  color: #101110;
   content: "↗";
   font-size: 16px;
 }
@@ -550,8 +569,9 @@ th {
 
 .metric-card strong {
   display: block;
-  margin: 18px 0 10px;
-  font-size: 42px;
+  margin: 28px 0 10px;
+  font-size: 30px;
+  font-weight: 400;
   line-height: 1;
 }
 
@@ -563,8 +583,8 @@ th {
 .metric-card.is-featured {
   border-color: transparent;
   background:
-    radial-gradient(circle at 100% 0, rgba(51, 143, 92, 0.42), transparent 32%),
-    linear-gradient(135deg, #0b3f28, #16844f);
+    radial-gradient(circle at 100% 0, rgba(200, 255, 69, 0.28), transparent 32%),
+    linear-gradient(135deg, #2a2b29, #1d1e1d);
   color: #fff;
 }
 
@@ -629,7 +649,7 @@ th {
 }
 
 .panel {
-  padding: 18px;
+  padding: 24px;
 }
 
 .panel-header {
@@ -641,18 +661,18 @@ th {
   grid-template-columns: repeat(7, minmax(18px, 1fr));
   align-items: end;
   gap: 12px;
-  height: 180px;
+  height: 170px;
   padding: 18px;
-  border-radius: 16px;
+  border-radius: 22px;
   background:
-    linear-gradient(rgba(23, 45, 35, 0.06) 1px, transparent 1px) 0 0 / 100% 25%,
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 100% 25%,
     var(--panel-2);
 }
 
 .bar-chart span {
   min-height: 28px;
   border-radius: 999px;
-  background: repeating-linear-gradient(135deg, #aeb8b2 0 4px, transparent 4px 8px);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .bar-chart span:nth-child(2),
@@ -688,15 +708,17 @@ th {
   align-content: center;
   gap: 10px;
   padding: 22px;
-  border-radius: 16px;
+  border-radius: 22px;
   background:
-    radial-gradient(circle at 90% 12%, rgba(255, 255, 255, 0.22), transparent 22%),
-    linear-gradient(135deg, #0b3d27, #146947);
+    radial-gradient(circle at 90% 12%, rgba(200, 255, 69, 0.22), transparent 22%),
+    linear-gradient(135deg, rgba(200, 255, 69, 0.16), rgba(124, 108, 242, 0.34)),
+    #2a2b29;
   color: #fff;
 }
 
 .focus-card strong {
-  font-size: 24px;
+  font-size: 22px;
+  font-weight: 400;
   line-height: 1.05;
 }
 
