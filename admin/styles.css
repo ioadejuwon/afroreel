@@ -502,6 +502,7 @@ h2 {
 .metric-card,
 .panel,
 .series-card {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--panel);
@@ -756,6 +757,7 @@ th {
 
 table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
 }
 
@@ -1201,6 +1203,8 @@ th {
 @media (max-width: 1080px) {
   .shell {
     grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0;
   }
 
   .sidebar {
