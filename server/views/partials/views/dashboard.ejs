@@ -1,56 +1,36 @@
 <section class="view active" id="dashboard" aria-label="Dashboard">
   <div class="dashboard-hero">
     <div>
-      <p class="eyebrow">Today</p>
-      <h2>Streaming operations overview</h2>
-      <p>Monitor content releases, paid unlocks, and viewer health from one control surface.</p>
+      <h2>Dashboard</h2>
+      <p>Plan releases, monitor growth, and keep the AfroReel catalog moving.</p>
     </div>
     <div class="hero-actions">
-      <button class="ghost-button" type="button" data-view-target="episodes">Review Queue</button>
-      <button class="primary-button" type="button" data-view-target="episodes" data-focus-target="episode-form">New Release</button>
+      <button class="primary-button" type="button" data-view-target="episodes" data-focus-target="episode-form">+ Upload Episode</button>
+      <button class="ghost-button" type="button" data-view-target="series">Manage Series</button>
     </div>
   </div>
 
   <div class="metric-grid">
-    <article class="metric-card">
-      <span>Daily active users</span>
+    <article class="metric-card is-featured">
+      <span>Total Viewers</span>
       <strong>24,890</strong>
-      <em>+12.8% vs last week</em>
+      <em>+12.8% from last week</em>
     </article>
     <article class="metric-card">
-      <span>Episode completions</span>
+      <span>Completions</span>
       <strong>68.4%</strong>
-      <em>Best: Broken Promises</em>
+      <em>Broken Promises leads</em>
     </article>
     <article class="metric-card">
-      <span>Unlock conversion</span>
+      <span>Unlock Rate</span>
       <strong>18.7%</strong>
-      <em>+3.1% after free ep 5</em>
+      <em>+3.1% after episode 5</em>
     </article>
     <article class="metric-card">
-      <span>Revenue per user</span>
+      <span>Revenue/User</span>
       <strong>$0.42</strong>
-      <em>Coins + rewarded ads</em>
+      <em>Coins and rewarded ads</em>
     </article>
-  </div>
-
-  <div class="ops-strip">
-    <div>
-      <span>Live releases</span>
-      <strong>14</strong>
-    </div>
-    <div>
-      <span>Flags open</span>
-      <strong>6</strong>
-    </div>
-    <div>
-      <span>Avg. session</span>
-      <strong>18m</strong>
-    </div>
-    <div>
-      <span>Payout ready</span>
-      <strong>$8.2k</strong>
-    </div>
   </div>
 
   <div class="content-grid">
@@ -75,15 +55,14 @@
 
     <article class="panel">
       <div class="panel-header">
-        <h2>Top Genres</h2>
-        <span>By streams</span>
+        <h2>Release Focus</h2>
+        <span>This week</span>
       </div>
-      <div class="donut" aria-hidden="true"></div>
-      <ul class="legend">
-        <li><span class="swatch gold"></span>Romance Drama</li>
-        <li><span class="swatch red"></span>Family Conflict</li>
-        <li><span class="swatch green"></span>Campus</li>
-      </ul>
+      <div class="focus-card">
+        <strong>Lagos Secrets</strong>
+        <span>Episode 12 review</span>
+        <button class="primary-button" type="button" data-view-target="episodes">Open Queue</button>
+      </div>
     </article>
 
     <article class="panel span-2">
@@ -112,30 +91,6 @@
         <div><span>Purchased</span><strong>182k</strong></div>
         <div><span>Ad rewards</span><strong>76k</strong></div>
         <div><span>Spent</span><strong>149k</strong></div>
-      </div>
-    </article>
-
-    <article class="panel span-2">
-      <div class="panel-header">
-        <h2>Release Pipeline</h2>
-        <span>Next 7 days</span>
-      </div>
-      <div class="pipeline-list">
-        <div><span>Script lock</span><strong>3 episodes</strong><em>2 owners</em></div>
-        <div><span>Edit review</span><strong>7 episodes</strong><em>4 due today</em></div>
-        <div><span>Localization</span><strong>12 assets</strong><em>EN, FR, PT</em></div>
-      </div>
-    </article>
-
-    <article class="panel">
-      <div class="panel-header">
-        <h2>Admin Activity</h2>
-        <span>Latest</span>
-      </div>
-      <div class="activity-list">
-        <div><strong>Ada</strong><span>approved Broken Promises Ep 10</span></div>
-        <div><strong>Tunde</strong><span>updated payout settings</span></div>
-        <div><strong>Miriam</strong><span>scheduled Campus Queens trailer</span></div>
       </div>
     </article>
   </div>

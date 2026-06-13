@@ -25,6 +25,7 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 
 type Drama = {
   id: string;
+  databaseId: number;
   title: string;
   genre: string;
   tags: string[];
@@ -38,118 +39,6 @@ type Drama = {
   rank?: number;
   status?: 'Ongoing' | 'Completed';
 };
-
-const dramas: Drama[] = [
-  {
-    id: 'lagos-secrets',
-    title: 'Lagos Secrets',
-    genre: 'Romance / Betrayal',
-    tags: ['Romance', 'Betrayal', 'Trending'],
-    episodeCount: 24,
-    posterGradient: ['#40285f', '#12091f'],
-    posterImage: require('../../assets/images/posters/lagossecrets.png'),
-    mood: 'A senator daughter. A hidden wedding. One night changes everything.',
-    progress: 68,
-    rank: 1,
-    status: 'Ongoing',
-  },
-  {
-    id: 'broken-promises',
-    title: 'Broken Promises',
-    genre: 'Family Drama',
-    tags: ['Family Drama', 'Betrayal'],
-    episodeCount: 31,
-    posterGradient: ['#5a202b', '#17080d'],
-    posterImage: require('../../assets/images/posters/brokenpromises.png'),
-    mood: 'She came home for peace and found the family lie.',
-    progress: 34,
-    status: 'Ongoing',
-  },
-  {
-    id: 'campus-queens',
-    title: 'Campus Queens',
-    genre: 'Campus',
-    tags: ['Campus', 'Free'],
-    episodeCount: 18,
-    posterGradient: ['#18414a', '#071416'],
-    posterImage: require('../../assets/images/posters/campusqueens.png'),
-    mood: 'Popularity has a price. Everyone is collecting.',
-    isFree: true,
-    status: 'Completed',
-  },
-  {
-    id: 'the-other-wife',
-    title: 'The Other Wife',
-    genre: 'Marriage / Secrets',
-    tags: ['Family Drama', 'Betrayal'],
-    episodeCount: 42,
-    posterGradient: ['#5c4420', '#181105'],
-    posterImage: require('../../assets/images/posters/theotherwife.png'),
-    mood: 'Two homes. One husband. No more silence.',
-    isLocked: true,
-    status: 'Ongoing',
-  },
-  {
-    id: 'silent-scars',
-    title: 'Silent Scars',
-    genre: 'Thriller',
-    tags: ['Thriller', 'Free'],
-    episodeCount: 27,
-    posterGradient: ['#1f3f27', '#07140a'],
-    posterImage: require('../../assets/images/posters/silentscars.png'),
-    mood: 'The village forgot. She remembers everything.',
-    isFree: true,
-    status: 'Completed',
-  },
-  {
-    id: 'rich-mans-game',
-    title: "Rich Man's Game",
-    genre: 'Luxury Drama',
-    tags: ['Romance', 'Betrayal'],
-    episodeCount: 36,
-    posterGradient: ['#26325c', '#080c18'],
-    posterImage: require('../../assets/images/posters/richmansgames.png'),
-    mood: 'Money opened the door. Love set the trap.',
-    isLocked: true,
-    status: 'Ongoing',
-  },
-  {
-    id: 'forbidden-love',
-    title: 'Forbidden Love',
-    genre: 'Romance',
-    tags: ['Romance', 'Trending'],
-    episodeCount: 22,
-    posterGradient: ['#563148', '#160912'],
-    posterImage: require('../../assets/images/posters/forbiddenlove.png'),
-    mood: 'Two families said never. They heard forever.',
-    isFree: true,
-    status: 'Completed',
-  },
-  {
-    id: 'blood-diamond',
-    title: 'Blood Diamond',
-    genre: 'Thriller / Crime',
-    tags: ['Thriller', 'Completed'],
-    episodeCount: 28,
-    posterGradient: ['#2f1b1f', '#0d0809'],
-    posterImage: require('../../assets/images/posters/Reel 1_Reel 1.png'),
-    mood: 'A mining town. A missing brother. A price too high.',
-    isLocked: true,
-    status: 'Completed',
-  },
-  {
-    id: 'nile-of-tears',
-    title: 'Nile of Tears',
-    genre: 'Family Drama',
-    tags: ['Family Drama', 'Free'],
-    episodeCount: 16,
-    posterGradient: ['#183948', '#071018'],
-    posterImage: require('../../assets/images/posters/nileoftears.png'),
-    mood: 'Her mother left a letter. The truth left scars.',
-    isFree: true,
-    status: 'Completed',
-  },
-];
 
 type Tab = 'Home' | 'Discover' | 'Wallet' | 'Alerts' | 'Profile';
 type PlayerEpisode = {
@@ -223,18 +112,18 @@ const coinPackages = [
   { id: 'plus', name: 'Plus', coins: 300, price: '$4.99', bonus: '+30 bonus' },
   { id: 'premium', name: 'Premium', coins: 1000, price: '$12.99', bonus: '+150 bonus' },
 ];
-const playerEpisodes: PlayerEpisode[] = [
-  { number: 4, title: 'The Photograph', hook: 'Amara finds the proof her father tried to bury.', progress: 72, isLocked: false },
-  { number: 5, title: 'The Wedding Guest', hook: 'A familiar face arrives just as the vows begin.', progress: 28, isLocked: false },
-  { number: 6, title: 'The Other Name', hook: 'The truth is one unlock away.', progress: 0, isLocked: true },
-  { number: 7, title: 'No Way Back', hook: 'One confession changes every alliance.', progress: 0, isLocked: true },
-];
 
-const API_BASE_URL = process.env?.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:3000';
+const API_BASE_URL = process.env?.EXPO_PUBLIC_API_BASE_URL ?? 'https://rellowmedia.com/afroreel';
 
 type ApiSeries = {
   id: number;
   title: string;
+  slug: string;
+  synopsis: string | null;
+  genres: string[];
+  posterUrl: string | null;
+  episodeCount: number;
+  status: string;
 };
 
 type ApiEpisode = {
@@ -266,11 +155,88 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+const posterGradients: readonly (readonly [string, string])[] = [
+  ['#40285f', '#12091f'],
+  ['#5a202b', '#17080d'],
+  ['#18414a', '#071416'],
+  ['#5c4420', '#181105'],
+  ['#1f3f27', '#07140a'],
+  ['#26325c', '#080c18'],
+];
+
+function mapApiSeriesToDrama(item: ApiSeries, index: number): Drama {
+  const tags = item.genres.length > 0 ? item.genres : ['Drama'];
+  const genre = tags.join(' / ');
+
+  return {
+    id: item.slug || String(item.id),
+    databaseId: item.id,
+    title: item.title,
+    genre,
+    tags: [...tags, index === 0 ? 'Trending' : '', item.status === 'live' ? 'Ongoing' : ''].filter(Boolean),
+    episodeCount: item.episodeCount,
+    posterGradient: posterGradients[index % posterGradients.length],
+    posterImage: item.posterUrl ? { uri: item.posterUrl } : undefined,
+    mood: item.synopsis || 'A new AfroReel story is ready to watch.',
+    rank: index + 1,
+    status: item.status === 'live' ? 'Ongoing' : 'Completed',
+  };
+}
+
 export default function HomeScreen() {
   const [entryStep, setEntryStep] = useState<EntryStep>('splash');
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [activeView, setActiveView] = useState<AppView>('tabs');
+  const [seriesCatalog, setSeriesCatalog] = useState<Drama[]>([]);
+  const [selectedSeries, setSelectedSeries] = useState<Drama | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSeriesCatalog() {
+      try {
+        const payload = await fetchJson<{ series: ApiSeries[] }>('/api/series');
+        if (!isMounted) {
+          return;
+        }
+
+        if (payload.series.length === 0) {
+          setSeriesCatalog([]);
+          setSelectedSeries(null);
+          return;
+        }
+
+        const nextSeries = payload.series.map(mapApiSeriesToDrama);
+        setSeriesCatalog(nextSeries);
+        setSelectedSeries(nextSeries[0]);
+      } catch {
+        if (isMounted) {
+          setSeriesCatalog([]);
+          setSelectedSeries(null);
+        }
+      }
+    }
+
+    void loadSeriesCatalog();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const openSeries = useCallback((series: Drama) => {
+    setSelectedSeries(series);
+    setActiveView('series-detail');
+  }, []);
+
+  const openPlayer = useCallback((series?: Drama) => {
+    if (series) {
+      setSelectedSeries(series);
+    }
+
+    setIsPlayerOpen(true);
+  }, []);
 
   if (entryStep === 'splash') {
     return <SplashScreen onComplete={() => setEntryStep('onboarding')} />;
@@ -284,15 +250,16 @@ export default function HomeScreen() {
     return <AuthScreen onComplete={() => setEntryStep('app')} />;
   }
 
-  if (isPlayerOpen) {
-    return <PlayerScreen onClose={() => setIsPlayerOpen(false)} />;
+  if (isPlayerOpen && selectedSeries) {
+    return <PlayerScreen series={selectedSeries} onClose={() => setIsPlayerOpen(false)} />;
   }
 
-  if (activeView === 'series-detail') {
+  if (activeView === 'series-detail' && selectedSeries) {
     return (
       <SeriesDetailScreen
+        series={selectedSeries}
         onBack={() => setActiveView('tabs')}
-        onStartWatching={() => setIsPlayerOpen(true)}
+        onStartWatching={() => openPlayer(selectedSeries)}
       />
     );
   }
@@ -300,8 +267,9 @@ export default function HomeScreen() {
   if (activeView === 'continue-watching') {
     return (
       <ContinueWatchingScreen
+        series={seriesCatalog}
         onBack={() => setActiveView('tabs')}
-        onResume={() => setIsPlayerOpen(true)}
+        onResume={openPlayer}
       />
     );
   }
@@ -315,13 +283,14 @@ export default function HomeScreen() {
       <View style={styles.screen}>
         {activeTab === 'Home' ? (
           <HomeTab
+            series={seriesCatalog}
             onOpenDiscover={() => setActiveTab('Discover')}
-            onOpenPlayer={() => setIsPlayerOpen(true)}
-            onOpenSeries={() => setActiveView('series-detail')}
+            onOpenPlayer={openPlayer}
+            onOpenSeries={openSeries}
             onOpenContinueWatching={() => setActiveView('continue-watching')}
           />
         ) : null}
-        {activeTab === 'Discover' ? <DiscoverTab /> : null}
+        {activeTab === 'Discover' ? <DiscoverTab series={seriesCatalog} onOpenSeries={openSeries} /> : null}
         {activeTab === 'Wallet' ? <WalletTab onOpenPayment={() => setActiveView('payment')} /> : null}
         {activeTab === 'Alerts' ? <NotificationsTab /> : null}
         {activeTab === 'Profile' ? <ProfileTab onOpenContinueWatching={() => setActiveView('continue-watching')} /> : null}
@@ -332,17 +301,21 @@ export default function HomeScreen() {
 }
 
 function HomeTab({
+  series,
   onOpenDiscover,
   onOpenPlayer,
   onOpenSeries,
   onOpenContinueWatching,
 }: {
+  series: Drama[];
   onOpenDiscover: () => void;
-  onOpenPlayer: () => void;
-  onOpenSeries: () => void;
+  onOpenPlayer: (series?: Drama) => void;
+  onOpenSeries: (series: Drama) => void;
   onOpenContinueWatching: () => void;
 }) {
-  const hero = dramas[0];
+  const hero = series[0];
+  const continueWatchingSeries = series.filter((drama) => drama.progress);
+  const freeSeries = series.filter((drama) => drama.isFree);
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
@@ -361,54 +334,71 @@ function HomeTab({
         </View>
       </View>
 
-      <Pressable style={styles.heroCard} onPress={onOpenSeries}>
-        <PosterVisual drama={hero} isHero />
-        <LinearGradient
-          colors={['transparent', 'rgba(10,10,15,0.38)', Colors.overlayHeavy]}
-          style={StyleSheet.absoluteFill}
-          
-        />
-        <View style={styles.heroCopy}>
-          <Text style={styles.featuredPill}>TRENDING #1</Text>
-          <Text style={styles.heroTitle}>{hero.title}</Text>
-          <Text style={styles.heroMeta}>
-            {hero.episodeCount} Episodes  /  {hero.genre}
+      {hero ? (
+        <Pressable style={styles.heroCard} onPress={() => onOpenSeries(hero)}>
+          <PosterVisual drama={hero} isHero />
+          <LinearGradient
+            colors={['transparent', 'rgba(10,10,15,0.38)', Colors.overlayHeavy]}
+            style={StyleSheet.absoluteFill}
             
-          </Text>
-          
-          <Text style={styles.heroMood}>{hero.mood}</Text>
-          <View style={styles.heroActions}>
-            <Pressable style={styles.primaryButton} onPress={onOpenPlayer}>
-              <Text style={styles.primaryButtonText}>Watch Now</Text>
-            </Pressable>
-            <Pressable style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>My List</Text>
-            </Pressable>
+          />
+          <View style={styles.heroCopy}>
+            <Text style={styles.featuredPill}>TRENDING #1</Text>
+            <Text style={styles.heroTitle}>{hero.title}</Text>
+            <Text style={styles.heroMeta}>
+              {hero.episodeCount} Episodes  /  {hero.genre}
+              
+            </Text>
+            
+            <Text style={styles.heroMood}>{hero.mood}</Text>
+            <View style={styles.heroActions}>
+              <Pressable style={styles.primaryButton} onPress={() => onOpenPlayer(hero)}>
+                <Text style={styles.primaryButtonText}>Watch Now</Text>
+              </Pressable>
+              <Pressable style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>My List</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      ) : (
+        <View style={styles.discoverySpotlight}>
+          <LinearGradient colors={['#2b1d38', '#0b0b12']} style={StyleSheet.absoluteFill} />
+          <View style={styles.discoverySpotlightCopy}>
+            <Text style={styles.featuredPill}>LIVE DATA</Text>
+            <Text style={styles.discoveryTitle}>No live series found</Text>
+            <Text style={styles.discoveryBody}>Publish a live series in the online admin to see it here.</Text>
           </View>
         </View>
-      </Pressable>
+      )}
 
       <DramaRail
         title="Continue Watching"
-        data={dramas.filter((drama) => drama.progress)}
+        data={continueWatchingSeries.length > 0 ? continueWatchingSeries : series.slice(0, 3)}
         variant="progress"
         onSeeAll={onOpenContinueWatching}
+        onOpenSeries={onOpenSeries}
       />
-      <DramaRail title="Trending Now" data={dramas.slice(1, 5)} />
-      <DramaRail title="New Episodes" data={[dramas[5], dramas[2], dramas[3], dramas[1]]} />
-      <DramaRail title="Free to Watch" data={dramas.filter((drama) => drama.isFree)} variant="free" />
+      <DramaRail title="Trending Now" data={series.slice(1, 5)} onOpenSeries={onOpenSeries} />
+      <DramaRail title="New Episodes" data={series.slice(0, 4).reverse()} onOpenSeries={onOpenSeries} />
+      <DramaRail
+        title="Free to Watch"
+        data={freeSeries.length > 0 ? freeSeries : series.slice(0, 4)}
+        variant="free"
+        onOpenSeries={onOpenSeries}
+      />
     </ScrollView>
   );
 }
 
-function DiscoverTab() {
+function DiscoverTab({ series, onOpenSeries }: { series: Drama[]; onOpenSeries: (series: Drama) => void }) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [query, setQuery] = useState('');
 
   const filteredDramas = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return dramas.filter((drama) => {
+    return series.filter((drama) => {
       const matchesFilter =
         activeFilter === 'All' ||
         drama.tags.includes(activeFilter) ||
@@ -421,7 +411,7 @@ function DiscoverTab() {
 
       return matchesFilter && matchesQuery;
     });
-  }, [activeFilter, query]);
+  }, [activeFilter, query, series]);
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
@@ -484,7 +474,7 @@ function DiscoverTab() {
 
       <View style={styles.posterGrid}>
         {filteredDramas.map((drama) => (
-          <Pressable key={`discover-${drama.id}`} style={styles.gridPoster}>
+          <Pressable key={`discover-${drama.id}`} style={styles.gridPoster} onPress={() => onOpenSeries(drama)}>
             <PosterVisual drama={drama} />
             {drama.isFree ? (
               <View style={styles.freeBadge}>
@@ -1177,17 +1167,20 @@ function ProfileRow({
 }
 
 function ContinueWatchingScreen({
+  series,
   onBack,
   onResume,
 }: {
+  series: Drama[];
   onBack: () => void;
-  onResume: () => void;
+  onResume: (series?: Drama) => void;
 }) {
-  const continueItems = [
-    { drama: dramas[0], episode: 5, remaining: '1m 28s left', updated: 'Watched 12 minutes ago' },
-    { drama: dramas[1], episode: 11, remaining: '42s left', updated: 'Watched yesterday' },
-    { drama: dramas[5], episode: 8, remaining: '2m 04s left', updated: 'Watched Monday' },
-  ];
+  const continueItems = series.slice(0, 3).map((drama, index) => ({
+    drama,
+    episode: index === 0 ? 5 : index === 1 ? 11 : 8,
+    remaining: index === 0 ? '1m 28s left' : index === 1 ? '42s left' : '2m 04s left',
+    updated: index === 0 ? 'Watched 12 minutes ago' : index === 1 ? 'Watched yesterday' : 'Watched Monday',
+  }));
 
   return (
     <View style={styles.continueScreen}>
@@ -1208,8 +1201,8 @@ function ContinueWatchingScreen({
           Pick up exactly where the drama left you.
         </Text>
 
-        {continueItems.map(({ drama, episode, remaining, updated }) => (
-          <Pressable key={drama.id} style={styles.continueCard} onPress={onResume}>
+        {continueItems.length > 0 ? continueItems.map(({ drama, episode, remaining, updated }) => (
+          <Pressable key={drama.id} style={styles.continueCard} onPress={() => onResume(drama)}>
             <View style={styles.continueArtwork}>
               <PosterVisual drama={drama} isHero />
               <LinearGradient colors={['transparent', Colors.overlayHeavy]} style={StyleSheet.absoluteFill} />
@@ -1230,24 +1223,32 @@ function ContinueWatchingScreen({
               </View>
             </View>
           </Pressable>
-        ))}
+        )) : (
+          <View style={styles.discoverySpotlight}>
+            <LinearGradient colors={['#2b1d38', '#0b0b12']} style={StyleSheet.absoluteFill} />
+            <View style={styles.discoverySpotlightCopy}>
+              <Text style={styles.featuredPill}>LIVE DATA</Text>
+              <Text style={styles.discoveryTitle}>No watch history yet</Text>
+              <Text style={styles.discoveryBody}>Live series from the online database will appear here after viewing starts.</Text>
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
 }
 
-function PlayerScreen({ onClose }: { onClose: () => void }) {
+function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void }) {
   const [remoteEpisodes, setRemoteEpisodes] = useState<PlayerEpisode[]>([]);
-  const [remoteSeriesTitle, setRemoteSeriesTitle] = useState('Lagos Secrets');
+  const [remoteSeriesTitle, setRemoteSeriesTitle] = useState(series.title);
   const [activeEpisodeIndex, setActiveEpisodeIndex] = useState(1);
   const [isPaused, setIsPaused] = useState(false);
   const [isUnlockSheetOpen, setIsUnlockSheetOpen] = useState(false);
   const [unlockedEpisodes, setUnlockedEpisodes] = useState<number[]>([]);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState('');
-  const activeEpisodes = remoteEpisodes.length > 0 ? remoteEpisodes : playerEpisodes;
-  const episode = activeEpisodes[Math.min(activeEpisodeIndex, activeEpisodes.length - 1)];
-  const isLocked = episode.isLocked && !unlockedEpisodes.includes(episode.number);
+  const episode = remoteEpisodes[Math.min(activeEpisodeIndex, remoteEpisodes.length - 1)];
+  const isLocked = Boolean(episode?.isLocked && !unlockedEpisodes.includes(episode.number));
   const videoPlayer = useVideoPlayer(playbackUrl ? { uri: playbackUrl } : null, (player) => {
     player.loop = false;
   });
@@ -1266,23 +1267,18 @@ function PlayerScreen({ onClose }: { onClose: () => void }) {
 
     async function loadRemoteEpisodes() {
       try {
-        const seriesPayload = await fetchJson<{ series: ApiSeries[] }>('/api/series');
-        const firstSeries = seriesPayload.series[0];
-        if (!firstSeries) {
+        const seriesId = series.databaseId;
+        const episodePayload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${seriesId}/episodes`);
+        if (!isMounted) {
           return;
         }
 
-        const episodePayload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${firstSeries.id}/episodes`);
-        if (!isMounted || episodePayload.episodes.length === 0) {
-          return;
-        }
-
-        setRemoteSeriesTitle(firstSeries.title);
+        setRemoteSeriesTitle(series.title);
         setRemoteEpisodes(
-          episodePayload.episodes.map((item) => ({
+          episodePayload.episodes.map((item, index) => ({
             id: item.id,
             seriesTitle: item.seriesTitle,
-            number: item.episodeNumber,
+            number: index + 1,
             title: item.title,
             hook: item.hook ?? '',
             progress: item.progressSeconds > 0 ? 35 : 0,
@@ -1293,7 +1289,9 @@ function PlayerScreen({ onClose }: { onClose: () => void }) {
         );
         setActiveEpisodeIndex(0);
       } catch {
-        // Keep the prototype fallback content when the API is unavailable.
+        if (isMounted) {
+          setRemoteEpisodes([]);
+        }
       }
     }
 
@@ -1302,7 +1300,7 @@ function PlayerScreen({ onClose }: { onClose: () => void }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [series.databaseId, series.title]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1341,17 +1339,17 @@ function PlayerScreen({ onClose }: { onClose: () => void }) {
     (direction: 'next' | 'previous') => {
       const offset = direction === 'next' ? 1 : -1;
       setActiveEpisodeIndex((currentIndex) => {
-        const nextIndex = Math.min(Math.max(currentIndex + offset, 0), activeEpisodes.length - 1);
-        const nextEpisode = activeEpisodes[nextIndex];
+        const nextIndex = Math.min(Math.max(currentIndex + offset, 0), remoteEpisodes.length - 1);
+        const nextEpisode = remoteEpisodes[nextIndex];
 
-        if (nextEpisode.isLocked && !unlockedEpisodes.includes(nextEpisode.number)) {
+        if (nextEpisode?.isLocked && !unlockedEpisodes.includes(nextEpisode.number)) {
           setIsUnlockSheetOpen(true);
         }
 
         return nextIndex;
       });
     },
-    [activeEpisodes, unlockedEpisodes],
+    [remoteEpisodes, unlockedEpisodes],
   );
 
   const panResponder = useMemo(
@@ -1370,6 +1368,10 @@ function PlayerScreen({ onClose }: { onClose: () => void }) {
   );
 
   const unlockCurrentEpisode = async () => {
+    if (!episode) {
+      return;
+    }
+
     if (episode.id) {
       try {
         await fetchJson(`/api/episodes/${episode.id}/unlock`, {
@@ -1384,6 +1386,31 @@ function PlayerScreen({ onClose }: { onClose: () => void }) {
     setUnlockedEpisodes((currentEpisodes) => [...currentEpisodes, episode.number]);
     setIsUnlockSheetOpen(false);
   };
+
+  if (!episode) {
+    return (
+      <View style={styles.playerScreen}>
+        <LinearGradient colors={['#4b2949', '#12080f', '#030305']} style={StyleSheet.absoluteFill} />
+        <SafeAreaView style={styles.playerSafeArea}>
+          <View style={styles.playerTopBar}>
+            <Pressable style={styles.playerRoundButton} onPress={onClose} accessibilityLabel="Close player">
+              <Ionicons name="chevron-back" size={22} color={Colors.text} />
+            </Pressable>
+          </View>
+          <View style={styles.lockedEpisode}>
+            <View style={styles.lockedEpisodeIcon}>
+              <Ionicons name="play-circle" size={28} color={Colors.textOnPrimary} />
+            </View>
+            <Text style={styles.lockedEpisodeEyebrow}>LIVE DATA</Text>
+            <Text style={styles.lockedEpisodeTitle}>No episodes published yet.</Text>
+            <Text style={styles.lockedEpisodeBody}>
+              Add live episodes for {series.title} in the online admin to test playback here.
+            </Text>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.playerScreen} {...panResponder.panHandlers}>
@@ -1492,13 +1519,60 @@ function PlayerScreen({ onClose }: { onClose: () => void }) {
 }
 
 function SeriesDetailScreen({
+  series,
   onBack,
   onStartWatching,
 }: {
+  series: Drama;
   onBack: () => void;
   onStartWatching: () => void;
 }) {
-  const series = dramas[0];
+  const [episodes, setEpisodes] = useState<PlayerEpisode[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadEpisodes() {
+      if (!series.databaseId) {
+        setEpisodes([]);
+        return;
+      }
+
+      try {
+        const payload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${series.databaseId}/episodes`);
+        if (!isMounted) {
+          return;
+        }
+
+        setEpisodes(
+          payload.episodes.map((item, index) => ({
+            id: item.id,
+            seriesTitle: item.seriesTitle,
+            number: index + 1,
+            title: item.title,
+            hook: item.hook ?? '',
+            progress: item.progressSeconds > 0 ? 35 : 0,
+            isLocked: item.isLocked,
+            isFree: item.isFree,
+            coinCost: item.coinCost,
+          })),
+        );
+      } catch {
+        if (isMounted) {
+          setEpisodes([]);
+        }
+      }
+    }
+
+    void loadEpisodes();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [series.databaseId]);
+
+  const episodeCount = episodes.length;
+  const episodeCountLabel = `${episodeCount} ${episodeCount === 1 ? 'episode' : 'episodes'}`;
 
   return (
     <View style={styles.detailScreen}>
@@ -1521,16 +1595,13 @@ function SeriesDetailScreen({
 
         <View style={styles.detailInfo}>
           <View style={styles.detailTagRow}>
-            <Text style={styles.detailTag}>ROMANCE</Text>
-            <Text style={styles.detailTag}>BETRAYAL</Text>
-            <Text style={styles.detailTag}>LAGOS</Text>
+            {series.tags.slice(0, 3).map((tag) => (
+              <Text key={`${series.id}-${tag}`} style={styles.detailTag}>{tag.toUpperCase()}</Text>
+            ))}
           </View>
           <Text style={styles.detailTitle}>{series.title}</Text>
-          <Text style={styles.detailMeta}>4.8 rating  /  {series.episodeCount} episodes  /  Ongoing</Text>
-          <Text style={styles.detailSynopsis}>
-            A senator&apos;s daughter returns to Lagos for a wedding and finds a photograph that could
-            unravel two families. Every answer leaves her with a more dangerous question.
-          </Text>
+          <Text style={styles.detailMeta}>4.8 rating  /  {episodeCountLabel}  /  {series.status}</Text>
+          <Text style={styles.detailSynopsis}>{series.mood}</Text>
           <Pressable style={styles.detailWatchButton} onPress={onStartWatching}>
             <Text style={styles.primaryButtonText}>Start Watching</Text>
           </Pressable>
@@ -1539,25 +1610,19 @@ function SeriesDetailScreen({
         <View style={styles.detailEpisodeHeader}>
           <View>
             <Text style={styles.sectionTitle}>Episodes</Text>
-            <Text style={styles.detailEpisodeSub}>Episodes 1-5 are free to watch.</Text>
+            <Text style={styles.detailEpisodeSub}>
+              {episodeCount > 0 ? `${episodeCountLabel} uploaded.` : 'No uploaded episodes found.'}
+            </Text>
           </View>
           <Text style={styles.detailSort}>Newest</Text>
         </View>
 
         <View style={styles.detailEpisodeList}>
-          {playerEpisodes.map((episode) => (
+          {episodes.length > 0 ? episodes.map((episode) => (
             <EpisodeRow key={episode.number} episode={episode} onPress={onStartWatching} />
-          ))}
-          <EpisodeRow
-            episode={{
-              number: 8,
-              title: 'The Family Table',
-              hook: 'Dinner is served. So is the truth.',
-              progress: 0,
-              isLocked: true,
-            }}
-            onPress={onStartWatching}
-          />
+          )) : (
+            <Text style={styles.detailSynopsis}>No live episodes are published for this series yet.</Text>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -1565,7 +1630,7 @@ function SeriesDetailScreen({
 }
 
 function EpisodeRow({ episode, onPress }: { episode: PlayerEpisode; onPress: () => void }) {
-  const isFree = episode.number <= 5;
+  const isFree = episode.isFree ?? episode.number <= 5;
 
   return (
     <Pressable style={styles.episodeRow} onPress={onPress}>
@@ -1688,11 +1753,13 @@ function DramaRail({
   data,
   variant,
   onSeeAll,
+  onOpenSeries,
 }: {
   title: string;
   data: Drama[];
   variant?: 'progress' | 'free';
   onSeeAll?: () => void;
+  onOpenSeries?: (series: Drama) => void;
 }) {
   return (
     <View style={styles.section}>
@@ -1708,7 +1775,11 @@ function DramaRail({
         contentContainerStyle={styles.railContent}
       >
         {data.map((drama) => (
-          <Pressable key={`${title}-${drama.id}`} style={styles.posterCard}>
+          <Pressable
+            key={`${title}-${drama.id}`}
+            style={styles.posterCard}
+            onPress={() => onOpenSeries?.(drama)}
+          >
             <PosterVisual drama={drama} />
             {variant === 'free' || drama.isFree ? (
               <View style={styles.freeBadge}>

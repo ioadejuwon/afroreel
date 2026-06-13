@@ -62,10 +62,13 @@ async function uniqueSlug(title: string): Promise<string> {
 
 export async function listSeries(includeDrafts = true): Promise<SeriesRow[]> {
   const where = includeDrafts ? "" : "WHERE s.status = 'live'";
+  const episodeJoin = includeDrafts
+    ? "LEFT JOIN episodes e ON e.series_id = s.id"
+    : "LEFT JOIN episodes e ON e.series_id = s.id AND e.status = 'live'";
   const [rows] = await pool.execute<SeriesRow[]>(
     `SELECT s.*, COUNT(e.id) AS episode_count
        FROM series s
-       LEFT JOIN episodes e ON e.series_id = s.id
+       ${episodeJoin}
        ${where}
       GROUP BY s.id
       ORDER BY s.updated_at DESC`,

@@ -8,27 +8,31 @@
     <span class="mobile-avatar"><%= String(admin.name || "A").slice(0, 1).toUpperCase() %></span>
     <div>
       <strong><%= admin.name %></strong>
-      <em>Studio CMS</em>
+      <em>Admin Studio</em>
     </div>
   </div>
-  <button class="mobile-upload-button" type="button" data-view-target="episodes" data-focus-target="episode-form">Upload</button>
+  <button class="mobile-upload-button" type="button" data-view-target="episodes" data-focus-target="episode-form">New</button>
 </header>
 
 <header class="topbar">
-  <div>
-    <p class="eyebrow">Content operations</p>
-    <h1 id="view-title">Dashboard</h1>
-  </div>
+  <h1 id="view-title">Dashboard</h1>
   <div class="top-actions">
     <label class="search">
       <span>Search</span>
-      <input type="search" placeholder="Series, users, episodes" />
+      <input type="search" placeholder="Search content" />
     </label>
-    <button class="ghost-button" type="button">Export</button>
+    <button class="icon-button" type="button" aria-label="Messages">✉</button>
+    <button class="icon-button" type="button" aria-label="Notifications">⌾</button>
+    <div class="admin-profile">
+      <span class="mobile-avatar"><%= String(admin.name || "A").slice(0, 1).toUpperCase() %></span>
+      <div>
+        <strong><%= admin.name %></strong>
+        <em><%= admin.email %></em>
+      </div>
+    </div>
     <form class="logout-form" method="post" action="<%= basePath %>/admin/logout">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <button class="ghost-button" type="submit">Logout</button>
     </form>
-    <button class="primary-button" type="button" data-view-target="episodes" data-focus-target="episode-form">Upload Episode</button>
   </div>
 </header>
