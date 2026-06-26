@@ -1,18 +1,32 @@
 <section class="view" id="users" aria-label="User management">
   <div class="metric-grid compact">
-    <article class="metric-card"><span>New signups</span><strong>1,248</strong><em>Past 7 days</em></article>
-    <article class="metric-card"><span>Paying users</span><strong>3,104</strong><em>12.4% active base</em></article>
-    <article class="metric-card"><span>Ad earners</span><strong>8,920</strong><em>Rewarded video users</em></article>
+    <% users.metrics.forEach((metric) => { %>
+      <article class="metric-card">
+        <span><%= metric.label %></span>
+        <strong><%= metric.value %></strong>
+        <em><%= metric.note %></em>
+      </article>
+    <% }) %>
   </div>
   <div class="panel">
     <table>
       <thead>
-        <tr><th>User</th><th>Region</th><th>Coins</th><th>Last watched</th><th>Status</th></tr>
+        <tr><th>User</th><th>Email</th><th>Coins</th><th>Last watched</th><th>Unlocks</th><th>Status</th></tr>
       </thead>
       <tbody>
-        <tr><td>Amara N.</td><td>Lagos</td><td>42</td><td>Broken Promises</td><td><span class="status live">Active</span></td></tr>
-        <tr><td>Kwame O.</td><td>Toronto</td><td>8</td><td>Lagos Secrets</td><td><span class="status review">Low balance</span></td></tr>
-        <tr><td>Zainab K.</td><td>London</td><td>116</td><td>Mother's Debt</td><td><span class="status live">Active</span></td></tr>
+        <% if (users.rows.length === 0) { %>
+          <tr><td colspan="6">No mobile users found.</td></tr>
+        <% } %>
+        <% users.rows.forEach((user) => { %>
+          <tr>
+            <td><%= user.name %></td>
+            <td><%= user.email %></td>
+            <td><%= user.coinBalance %></td>
+            <td><%= user.lastWatched %></td>
+            <td><%= user.unlockNote %></td>
+            <td><span class="status <%= user.statusClass %>"><%= user.statusLabel %></span></td>
+          </tr>
+        <% }) %>
       </tbody>
     </table>
   </div>

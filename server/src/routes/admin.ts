@@ -7,6 +7,7 @@ import {
   createSeries,
   deleteEpisode,
   getDashboardData,
+  getUsersData,
   listEpisodes,
   listSeries,
   markEpisodeReady,
@@ -39,7 +40,7 @@ async function renderAdmin(req: Request, res: Response, options: {
   initialView?: string;
   seriesDetailId?: string;
 } = {}): Promise<void> {
-  const [series, episodes, dashboard] = await Promise.all([listSeries(true), listEpisodes(true), getDashboardData()]);
+  const [series, episodes, dashboard, users] = await Promise.all([listSeries(true), listEpisodes(true), getDashboardData(), getUsersData()]);
   const initialView = adminViews.has(options.initialView ?? "") ? options.initialView : "dashboard";
   const selectedSeries = options.seriesDetailId
     ? series.find((item) => item.series_id === options.seriesDetailId || item.id === Number.parseInt(options.seriesDetailId ?? "", 10)) ?? null
@@ -52,6 +53,7 @@ async function renderAdmin(req: Request, res: Response, options: {
     series,
     episodes,
     dashboard,
+    users,
     selectedSeries,
     selectedEpisodes,
     episodeFormError: options.episodeFormError ?? "",

@@ -1,7 +1,8 @@
-import { ComponentProps, useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as SecureStore from 'expo-secure-store';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   ImageBackground,
@@ -10,6 +11,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -58,9 +60,31 @@ type PlayerEpisode = {
   isFree?: boolean;
   coinCost?: number;
 };
+type UnlockMethod = 'coins' | 'ad';
 type AppView = 'tabs' | 'series-detail' | 'continue-watching' | 'category-list' | 'payment';
 type EntryStep = 'splash' | 'onboarding' | 'auth' | 'app';
 type SeriesCategory = 'continue' | 'trending' | 'new' | 'free';
+type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  coinBalance: number;
+};
+type WalletTopUpNotification = {
+  coinsAdded: number;
+  newBalance: number;
+};
+type AppNotification = {
+  key: string;
+  mark: string;
+  title: string;
+  body: string;
+  time: string;
+  sortTime: number;
+  onPress: () => void;
+  unread?: boolean;
+  accent?: 'red' | 'gold';
+};
 
 const tabs: Tab[] = ['Home', 'Discover', 'Wallet', 'Alerts', 'Profile'];
 const tabIcons: Record<Tab, IconName> = {
@@ -155,6 +179,12 @@ function createLocalApiBaseUrl(): string {
 const API_BASE_URL = getConfiguredApiBaseUrl() ?? createLocalApiBaseUrl();
 const API_ORIGIN = API_BASE_URL.match(/^https?:\/\/[^/]+/)?.[0] ?? API_BASE_URL;
 const API_TIMEOUT_MS = 10000;
+const AUTH_TOKEN_STORAGE_KEY = 'afroreel.authToken';
+let apiAuthToken: string | null = null;
+
+function setApiAuthToken(token: string | null): void {
+  apiAuthToken = token;
+}
 
 type ApiSeries = {
   id: string;
@@ -183,10 +213,44 @@ type ApiEpisode = {
   progressSeconds: number;
 };
 
+type WalletTransaction = {
+  id: number;
+  type: 'top_up' | 'spend' | 'reward';
+  coinAmount: number;
+  description: string;
+  episodeId: number | null;
+  seriesTitle: string | null;
+  episodeNumber: number | null;
+  createdAt: string;
+};
+
+type EpisodeEngagement = {
+  likeCount: number;
+  commentCount: number;
+  saveCount: number;
+  hasLiked: boolean;
+  hasSaved: boolean;
+};
+
+type EpisodeComment = {
+  id: number;
+  userId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+};
+
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   const url = `${API_BASE_URL}${path}`;
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+
+  if (apiAuthToken) {
+    headers.authorization = `Bearer ${apiAuthToken}`;
+  }
 
   let response: Response;
 
@@ -195,8 +259,7 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
       ...options,
       signal: controller.signal,
       headers: {
-        'content-type': 'application/json',
-        'x-afroreel-user-id': 'demo-user',
+        ...headers,
         ...(options?.headers ?? {}),
       },
     });
@@ -211,7 +274,16 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status} from ${url}`);
+    let errorMessage = `Request failed: ${response.status} from ${url}`;
+
+    try {
+      const payload = await response.json() as { error?: string };
+      errorMessage = payload.error || errorMessage;
+    } catch {
+      // Keep the transport error if the response is not JSON.
+    }
+
+    throw new Error(errorMessage);
   }
 
   return response.json() as Promise<T>;
@@ -272,6 +344,17 @@ function formatPlaybackTime(seconds: number): string {
   return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 }
 
+function formatCompactCount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0';
+  }
+
+  return new Intl.NumberFormat('en', {
+    notation: value >= 10000 ? 'compact' : 'standard',
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 function getContinueWatchingSeries(series: Drama[]): Drama[] {
   return series
     .filter((drama) => (drama.progressSeconds ?? 0) > 0)
@@ -310,6 +393,8 @@ function getCategorySeries(series: Drama[], category: SeriesCategory): Drama[] {
 
 export default function HomeScreen() {
   const [entryStep, setEntryStep] = useState<EntryStep>('splash');
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [activeView, setActiveView] = useState<AppView>('tabs');
@@ -318,6 +403,7 @@ export default function HomeScreen() {
   const [selectedSeries, setSelectedSeries] = useState<Drama | null>(null);
   const [isRefreshingCatalog, setIsRefreshingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState('');
+  const [walletTopUpNotification, setWalletTopUpNotification] = useState<WalletTopUpNotification | null>(null);
 
   const loadSeriesCatalog = useCallback(async () => {
     const payload = await fetchJson<{ series: ApiSeries[] }>('/api/series');
@@ -355,6 +441,50 @@ export default function HomeScreen() {
   }, [applySeriesCatalog, loadSeriesCatalog]);
 
   useEffect(() => {
+    setApiAuthToken(authToken);
+  }, [authToken]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadStoredAuth() {
+      try {
+        const storedToken = await SecureStore.getItemAsync(AUTH_TOKEN_STORAGE_KEY);
+        if (!storedToken) {
+          return;
+        }
+
+        setApiAuthToken(storedToken);
+        const payload = await fetchJson<{ user: AuthUser }>('/api/auth/me');
+
+        if (isMounted) {
+          setAuthToken(storedToken);
+          setCurrentUser(payload.user);
+        }
+      } catch {
+        await SecureStore.deleteItemAsync(AUTH_TOKEN_STORAGE_KEY);
+        setApiAuthToken(null);
+      }
+    }
+
+    void loadStoredAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authToken && entryStep !== 'splash') {
+      setEntryStep('app');
+    }
+  }, [authToken, entryStep]);
+
+  useEffect(() => {
+    if (entryStep !== 'app' || !authToken) {
+      return;
+    }
+
     let isMounted = true;
 
     async function loadInitialSeriesCatalog() {
@@ -378,7 +508,7 @@ export default function HomeScreen() {
     return () => {
       isMounted = false;
     };
-  }, [applySeriesCatalog, loadSeriesCatalog]);
+  }, [applySeriesCatalog, authToken, entryStep, loadSeriesCatalog]);
 
   const openSeries = useCallback((series: Drama) => {
     setSelectedSeries(series);
@@ -399,7 +529,7 @@ export default function HomeScreen() {
   }, []);
 
   if (entryStep === 'splash') {
-    return <SplashScreen onComplete={() => setEntryStep('onboarding')} />;
+    return <SplashScreen onComplete={() => setEntryStep(authToken ? 'app' : 'onboarding')} />;
   }
 
   if (entryStep === 'onboarding') {
@@ -407,11 +537,26 @@ export default function HomeScreen() {
   }
 
   if (entryStep === 'auth') {
-    return <AuthScreen onComplete={() => setEntryStep('app')} />;
+    return (
+      <AuthScreen
+        onComplete={(token) => {
+          setAuthToken(token);
+          setEntryStep('app');
+        }}
+        onUserLoaded={setCurrentUser}
+      />
+    );
   }
 
   if (isPlayerOpen && selectedSeries) {
-    return <PlayerScreen series={selectedSeries} onClose={() => setIsPlayerOpen(false)} />;
+    return (
+      <PlayerScreen
+        series={selectedSeries}
+        user={currentUser}
+        onUserChange={setCurrentUser}
+        onClose={() => setIsPlayerOpen(false)}
+      />
+    );
   }
 
   if (activeView === 'series-detail' && selectedSeries) {
@@ -453,7 +598,15 @@ export default function HomeScreen() {
   }
 
   if (activeView === 'payment') {
-    return <PaymentScreen onBack={() => setActiveView('tabs')} />;
+    return (
+      <PaymentScreen
+        onBack={() => setActiveView('tabs')}
+        onComplete={(user, coinsAdded) => {
+          setCurrentUser(user);
+          setWalletTopUpNotification({ coinsAdded, newBalance: user.coinBalance });
+        }}
+      />
+    );
   }
 
   return (
@@ -479,9 +632,23 @@ export default function HomeScreen() {
             isRefreshing={isRefreshingCatalog}
           />
         ) : null}
-        {activeTab === 'Wallet' ? <WalletTab onOpenPayment={() => setActiveView('payment')} /> : null}
-        {activeTab === 'Alerts' ? <NotificationsTab /> : null}
-        {activeTab === 'Profile' ? <ProfileTab onOpenContinueWatching={() => setActiveView('continue-watching')} /> : null}
+        {activeTab === 'Wallet' ? <WalletTab user={currentUser} onOpenPayment={() => setActiveView('payment')} /> : null}
+        {activeTab === 'Alerts' ? (
+          <NotificationsTab
+            series={seriesCatalog}
+            user={currentUser}
+            walletTopUpNotification={walletTopUpNotification}
+            onOpenSeries={openSeries}
+            onOpenWallet={() => setActiveTab('Wallet')}
+          />
+        ) : null}
+        {activeTab === 'Profile' ? (
+          <ProfileTab
+            user={currentUser}
+            series={seriesCatalog}
+            onOpenContinueWatching={() => setActiveView('continue-watching')}
+          />
+        ) : null}
         <BottomNav activeTab={activeTab} onChange={setActiveTab} />
       </View>
     </SafeAreaView>
@@ -718,7 +885,7 @@ function DiscoverTab({
             ) : null}
             {drama.isLocked ? (
               <View style={styles.lockBadge}>
-                <Text style={styles.lockBadgeText}>5c</Text>
+                <Text style={styles.lockBadgeText}>LOCKED</Text>
               </View>
             ) : null}
             <LinearGradient colors={['transparent', Colors.overlayHeavy]} style={styles.posterFade} />
@@ -793,7 +960,7 @@ function CategorySeriesScreen({
                 ) : null}
                 {drama.isLocked ? (
                   <View style={styles.lockBadge}>
-                    <Text style={styles.lockBadgeText}>5c</Text>
+                    <Text style={styles.lockBadgeText}>LOCKED</Text>
                   </View>
                 ) : null}
                 <LinearGradient colors={['transparent', Colors.overlayHeavy]} style={styles.posterFade} />
@@ -932,10 +1099,63 @@ function OnboardingScreen({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-function AuthScreen({ onComplete }: { onComplete: () => void }) {
+function AuthScreen({
+  onComplete,
+  onUserLoaded,
+}: {
+  onComplete: (token: string, user: AuthUser) => void;
+  onUserLoaded: (user: AuthUser) => void;
+}) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submitAuth = useCallback(async () => {
+    if (isSubmitting) {
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setAuthError('Enter your email address.');
+      return;
+    }
+
+    if (isCreatingAccount && password.length < 8) {
+      setAuthError('Create a password with at least 8 characters.');
+      return;
+    }
+
+    if (!password) {
+      setAuthError('Enter your password.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setAuthError('');
+
+    try {
+      const payload = await fetchJson<{ token: string; user: AuthUser }>(
+        isCreatingAccount ? '/api/auth/signup' : '/api/auth/signin',
+        {
+          method: 'POST',
+          body: JSON.stringify({ email: normalizedEmail, password }),
+        },
+      );
+
+      setApiAuthToken(payload.token);
+      await SecureStore.setItemAsync(AUTH_TOKEN_STORAGE_KEY, payload.token);
+      onUserLoaded(payload.user);
+      onComplete(payload.token, payload.user);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Could not sign in. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [email, isCreatingAccount, isSubmitting, onComplete, onUserLoaded, password]);
 
   return (
     <View style={styles.authScreen}>
@@ -1001,9 +1221,15 @@ function AuthScreen({ onComplete }: { onComplete: () => void }) {
               </Pressable>
             ) : null}
 
-            <Pressable style={styles.authContinueButton} onPress={onComplete}>
+            {authError ? <Text style={styles.authError}>{authError}</Text> : null}
+
+            <Pressable
+              style={[styles.authContinueButton, isSubmitting && styles.authContinueButtonDisabled]}
+              onPress={submitAuth}
+              disabled={isSubmitting}
+            >
               <Text style={styles.primaryButtonText}>
-                {isCreatingAccount ? 'Create Account' : 'Continue'}
+                {isSubmitting ? 'Please wait...' : isCreatingAccount ? 'Create Account' : 'Continue'}
               </Text>
             </Pressable>
 
@@ -1014,11 +1240,11 @@ function AuthScreen({ onComplete }: { onComplete: () => void }) {
             </View>
 
             <View style={styles.authSocialRow}>
-              <Pressable style={styles.authSocialButton} onPress={onComplete}>
+              <Pressable style={[styles.authSocialButton, styles.authSocialButtonDisabled]} disabled>
                 <Ionicons name="logo-google" size={18} color={Colors.text} />
                 <Text style={styles.authSocialText}>Google</Text>
               </Pressable>
-              <Pressable style={styles.authSocialButton} onPress={onComplete}>
+              <Pressable style={[styles.authSocialButton, styles.authSocialButtonDisabled]} disabled>
                 <Ionicons name="logo-apple" size={19} color={Colors.text} />
                 <Text style={styles.authSocialText}>Apple</Text>
               </Pressable>
@@ -1028,7 +1254,12 @@ function AuthScreen({ onComplete }: { onComplete: () => void }) {
               <Text style={styles.authToggleCopy}>
                 {isCreatingAccount ? 'Already have an account?' : 'New to AfroReel?'}
               </Text>
-              <Pressable onPress={() => setIsCreatingAccount((currentValue) => !currentValue)}>
+              <Pressable
+                onPress={() => {
+                  setAuthError('');
+                  setIsCreatingAccount((currentValue) => !currentValue);
+                }}
+              >
                 <Text style={styles.authToggleAction}>
                   {isCreatingAccount ? 'Sign in' : 'Create account'}
                 </Text>
@@ -1041,8 +1272,30 @@ function AuthScreen({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-function WalletTab({ onOpenPayment }: { onOpenPayment: () => void }) {
-  const [selectedPackage, setSelectedPackage] = useState('plus');
+function WalletTab({ user, onOpenPayment }: { user: AuthUser | null; onOpenPayment: () => void }) {
+  const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
+  const [transactionError, setTransactionError] = useState('');
+  const coinBalance = user?.coinBalance ?? 0;
+  const unlockEstimate = Math.floor(coinBalance / 5);
+
+  const loadTransactions = useCallback(async () => {
+    setIsLoadingTransactions(true);
+
+    try {
+      const payload = await fetchJson<{ transactions: WalletTransaction[] }>('/api/wallet/transactions');
+      setTransactions(payload.transactions);
+      setTransactionError('');
+    } catch (error) {
+      setTransactionError(error instanceof Error ? error.message : 'Could not load wallet history.');
+    } finally {
+      setIsLoadingTransactions(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTransactions();
+  }, [coinBalance, loadTransactions]);
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
@@ -1051,44 +1304,23 @@ function WalletTab({ onOpenPayment }: { onOpenPayment: () => void }) {
         <View style={styles.walletCoinMark}>
           <Ionicons name="wallet" size={36} color={Colors.textOnPrimary} />
         </View>
-        <Text style={styles.walletBalance}>250</Text>
+        <Text style={styles.walletBalance}>{coinBalance.toLocaleString()}</Text>
         <Text style={styles.walletBalanceLabel}>available coins</Text>
-        <Text style={styles.walletHint}>That is enough to unlock 50 episodes.</Text>
+        <Text style={styles.walletHint}>
+          {unlockEstimate > 0
+            ? `That is enough to unlock ${unlockEstimate} episode${unlockEstimate === 1 ? '' : 's'}.`
+            : 'Top up or earn coins to unlock paid episodes.'}
+        </Text>
       </LinearGradient>
 
       <View style={styles.walletSectionHeader}>
         <Text style={styles.sectionTitle}>Top up coins</Text>
-        <Text style={styles.walletSectionCopy}>Choose a pack and keep the story moving.</Text>
-      </View>
-
-      <View style={styles.packageList}>
-        {coinPackages.map((coinPackage) => {
-          const isSelected = selectedPackage === coinPackage.id;
-
-          return (
-            <Pressable
-              key={coinPackage.id}
-              onPress={() => setSelectedPackage(coinPackage.id)}
-              style={[styles.packageCard, isSelected && styles.packageCardSelected]}
-            >
-              <View style={styles.packageCoinMark}>
-                <Ionicons name="wallet" size={16} color={Colors.textOnPrimary} />
-              </View>
-              <View style={styles.packageCopy}>
-                <View style={styles.packageTitleRow}>
-                  <Text style={styles.packageName}>{coinPackage.name}</Text>
-                  {coinPackage.bonus ? <Text style={styles.packageBonus}>{coinPackage.bonus}</Text> : null}
-                </View>
-                <Text style={styles.packageCoins}>{coinPackage.coins.toLocaleString()} coins</Text>
-              </View>
-              <Text style={styles.packagePrice}>{coinPackage.price}</Text>
-            </Pressable>
-          );
-        })}
+        <Text style={styles.walletSectionCopy}>Open checkout to choose a pack and keep the story moving.</Text>
       </View>
 
       <Pressable style={styles.walletPurchaseButton} onPress={onOpenPayment}>
-        <Text style={styles.primaryButtonText}>Continue to payment</Text>
+        <Ionicons name="add-circle" size={18} color={Colors.textOnPrimary} />
+        <Text style={styles.primaryButtonText}>Buy coins</Text>
       </Pressable>
 
       <View style={styles.walletSectionHeader}>
@@ -1101,15 +1333,89 @@ function WalletTab({ onOpenPayment }: { onOpenPayment: () => void }) {
         <EarnRow mark="D" label="Daily check-in" description="Come back tomorrow for another reward" reward="+2" />
         <EarnRow mark="R" label="Invite a friend" description="Referral rewards are coming soon" reward="Soon" disabled />
       </View>
+
+      <View style={styles.walletSectionHeader}>
+        <Text style={styles.sectionTitle}>Wallet history</Text>
+        <Text style={styles.walletSectionCopy}>Track coin additions and episode unlocks.</Text>
+      </View>
+
+      <View style={styles.walletHistoryList}>
+        {isLoadingTransactions && transactions.length === 0 ? (
+          <Text style={styles.walletHistoryState}>Loading wallet history...</Text>
+        ) : null}
+        {transactionError ? <Text style={styles.walletHistoryState}>{transactionError}</Text> : null}
+        {!isLoadingTransactions && !transactionError && transactions.length === 0 ? (
+          <Text style={styles.walletHistoryState}>No coin activity yet.</Text>
+        ) : null}
+        {transactions.map((transaction) => (
+          <WalletHistoryRow key={transaction.id} transaction={transaction} />
+        ))}
+      </View>
     </ScrollView>
   );
 }
 
-function PaymentScreen({ onBack }: { onBack: () => void }) {
+function WalletHistoryRow({ transaction }: { transaction: WalletTransaction }) {
+  const isCredit = transaction.coinAmount > 0;
+  const amount = Math.abs(transaction.coinAmount).toLocaleString();
+  const fallbackTitle = isCredit ? 'Coins added' : 'Coins spent';
+  const subtitle = transaction.type === 'spend' && transaction.seriesTitle
+    ? `${transaction.seriesTitle}${transaction.episodeNumber ? `, Episode ${transaction.episodeNumber}` : ''}`
+    : formatWalletTransactionDate(transaction.createdAt);
+
+  return (
+    <View style={styles.walletHistoryRow}>
+      <View style={[styles.walletHistoryIcon, isCredit ? styles.walletHistoryIconCredit : styles.walletHistoryIconSpend]}>
+        <Ionicons name={isCredit ? 'add' : 'remove'} size={18} color={isCredit ? Colors.success : Colors.primary} />
+      </View>
+      <View style={styles.walletHistoryCopy}>
+        <Text style={styles.walletHistoryTitle}>{transaction.description || fallbackTitle}</Text>
+        <Text style={styles.walletHistoryMeta}>{subtitle}</Text>
+      </View>
+      <Text style={[styles.walletHistoryAmount, isCredit ? styles.walletHistoryAmountCredit : styles.walletHistoryAmountSpend]}>
+        {isCredit ? '+' : '-'}{amount}
+      </Text>
+    </View>
+  );
+}
+
+function formatWalletTransactionDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Recent';
+  }
+
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date);
+}
+
+function PaymentScreen({ onBack, onComplete }: { onBack: () => void; onComplete: (user: AuthUser, coinsAdded: number) => void }) {
   const [selectedPackage, setSelectedPackage] = useState('plus');
   const [selectedMethod, setSelectedMethod] = useState('card');
   const [isComplete, setIsComplete] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const selectedCoinPackage = coinPackages.find((coinPackage) => coinPackage.id === selectedPackage) ?? coinPackages[1];
+  const completePayment = useCallback(async () => {
+    if (isSubmitting) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setPaymentError('');
+
+    try {
+      const payload = await fetchJson<{ user: AuthUser }>('/api/wallet/topup', {
+        method: 'POST',
+        body: JSON.stringify({ coins: selectedCoinPackage.coins }),
+      });
+      onComplete(payload.user, selectedCoinPackage.coins);
+      setIsComplete(true);
+    } catch (error) {
+      setPaymentError(error instanceof Error ? error.message : 'Could not update your wallet. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [isSubmitting, onComplete, selectedCoinPackage.coins]);
 
   if (isComplete) {
     return (
@@ -1215,8 +1521,14 @@ function PaymentScreen({ onBack }: { onBack: () => void }) {
           Secure checkout. Your payment details are encrypted and never stored by AfroReel.
         </Text>
 
-        <Pressable style={styles.paymentButton} onPress={() => setIsComplete(true)}>
-          <Text style={styles.primaryButtonText}>Pay {selectedCoinPackage.price}</Text>
+        {paymentError ? <Text style={styles.authError}>{paymentError}</Text> : null}
+
+        <Pressable
+          style={[styles.paymentButton, isSubmitting && styles.authContinueButtonDisabled]}
+          onPress={completePayment}
+          disabled={isSubmitting}
+        >
+          <Text style={styles.primaryButtonText}>{isSubmitting ? 'Please wait...' : `Pay ${selectedCoinPackage.price}`}</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -1291,7 +1603,72 @@ function EarnRow({
   );
 }
 
-function NotificationsTab() {
+function NotificationsTab({
+  series,
+  user,
+  walletTopUpNotification,
+  onOpenSeries,
+  onOpenWallet,
+}: {
+  series: Drama[];
+  user: AuthUser | null;
+  walletTopUpNotification: WalletTopUpNotification | null;
+  onOpenSeries: (series: Drama) => void;
+  onOpenWallet: () => void;
+}) {
+  const newEpisodeSeries = getNewEpisodeSeries(series).slice(0, 3);
+  const continueWatchingSeries = getContinueWatchingSeries(series).slice(0, 2);
+  const notifications: AppNotification[] = [
+    ...newEpisodeSeries.map((drama) => ({
+      key: `new-${drama.databaseId}`,
+      mark: 'N',
+      title: `${drama.title} has live episodes`,
+      body: `${drama.episodeCount} episode${drama.episodeCount === 1 ? '' : 's'} available from the database.`,
+      time: formatNotificationDate(drama.latestEpisodeAt),
+      sortTime: notificationTimeValue(drama.latestEpisodeAt),
+      onPress: () => onOpenSeries(drama),
+      unread: (drama.progressSeconds ?? 0) === 0,
+    })),
+    ...continueWatchingSeries.map((drama) => ({
+      key: `continue-${drama.databaseId}`,
+      mark: 'W',
+      title: `Resume ${drama.title}`,
+      body: `${formatPlaybackTime(drama.progressSeconds ?? 0)} watched on your account.`,
+      time: 'Saved',
+      sortTime: notificationTimeValue(drama.latestEpisodeAt) - 1,
+      onPress: () => onOpenSeries(drama),
+    })),
+  ];
+
+  if (user) {
+    notifications.push(
+      walletTopUpNotification
+        ? {
+            key: 'wallet-top-up',
+            mark: 'C',
+            title: `${walletTopUpNotification.coinsAdded.toLocaleString()} coins added to your balance`,
+            body: `Your wallet balance is now ${walletTopUpNotification.newBalance.toLocaleString()} coins.`,
+            time: 'Now',
+            sortTime: Date.now(),
+            onPress: onOpenWallet,
+            unread: true,
+            accent: 'gold',
+          }
+        : {
+            key: 'wallet-balance',
+            mark: 'C',
+            title: `${user.coinBalance.toLocaleString()} coins available`,
+            body: 'This balance is loaded from your signed-in account.',
+            time: 'Now',
+            sortTime: 0,
+            onPress: onOpenWallet,
+            accent: 'gold',
+          },
+    );
+  }
+
+  notifications.sort((first, second) => second.sortTime - first.sortTime);
+
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       <View style={styles.notificationsHeader}>
@@ -1304,66 +1681,55 @@ function NotificationsTab() {
         </Pressable>
       </View>
 
-      <NotificationGroup title="New Episodes">
-        <NotificationRow
-          mark="N"
-          title="Broken Promises is back"
-          body="Episode 14 is live. The family meeting did not go as planned."
-          time="12m"
-          unread
-        />
-        <NotificationRow
-          mark="L"
-          title="Lagos Secrets: Episode 8"
-          body="Dinner is served. So is the truth."
-          time="2h"
-          unread
-        />
-      </NotificationGroup>
-
-      <NotificationGroup title="Bonus Rewards">
-        <NotificationRow
-          mark="C"
-          title="You received 10 free coins"
-          body="Your weekly reward is ready to spend on any locked episode."
-          time="4h"
-          unread
-          accent="gold"
-        />
-        <NotificationRow
-          mark="D"
-          title="Your daily check-in is waiting"
-          body="Open your wallet and collect today's coin reward."
-          time="Yesterday"
-          accent="gold"
-        />
-      </NotificationGroup>
-
-      <NotificationGroup title="Picked for You">
-        <NotificationRow
-          mark="P"
-          title="Because you watched Lagos Secrets"
-          body="The Other Wife has secrets, pressure, and one very dangerous wedding."
-          time="Yesterday"
-        />
-        <NotificationRow
-          mark="T"
-          title="A thriller for tonight"
-          body="Silent Scars is now complete. Binge all 27 episodes."
-          time="Mon"
-        />
-      </NotificationGroup>
+      {notifications.length > 0 ? (
+        <View style={styles.notificationList}>
+          {notifications.map((notification) => (
+            <NotificationRow
+              key={notification.key}
+              mark={notification.mark}
+              title={notification.title}
+              body={notification.body}
+              time={notification.time}
+              onPress={notification.onPress}
+              unread={notification.unread}
+              accent={notification.accent}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={styles.discoverySpotlight}>
+          <LinearGradient colors={['#2b1d38', '#0b0b12']} style={StyleSheet.absoluteFill} />
+          <View style={styles.discoverySpotlightCopy}>
+            <Text style={styles.featuredPill}>LIVE DATA</Text>
+            <Text style={styles.discoveryTitle}>No account updates yet</Text>
+            <Text style={styles.discoveryBody}>Personal alerts will appear after your account has watch activity or live catalog updates.</Text>
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 }
 
-function NotificationGroup({ title, children }: { title: string; children: ViewProps['children'] }) {
-  return (
-    <View style={styles.notificationGroup}>
-      <Text style={styles.notificationGroupTitle}>{title}</Text>
-      <View style={styles.notificationGroupList}>{children}</View>
-    </View>
-  );
+function formatNotificationDate(value: string | null | undefined): string {
+  if (!value) {
+    return 'Live';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Live';
+  }
+
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date);
+}
+
+function notificationTimeValue(value: string | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
 function NotificationRow({
@@ -1371,6 +1737,7 @@ function NotificationRow({
   title,
   body,
   time,
+  onPress,
   unread = false,
   accent = 'red',
 }: {
@@ -1378,13 +1745,14 @@ function NotificationRow({
   title: string;
   body: string;
   time: string;
+  onPress: () => void;
   unread?: boolean;
   accent?: 'red' | 'gold';
 }) {
   const isGold = accent === 'gold';
 
   return (
-    <Pressable style={styles.notificationRow}>
+    <Pressable style={styles.notificationRow} onPress={onPress}>
       <View style={[styles.notificationIcon, isGold && styles.notificationIconGold]}>
         <Ionicons name={getIconForMark(mark)} size={18} color={isGold ? Colors.textOnPrimary : Colors.primary} />
       </View>
@@ -1400,26 +1768,41 @@ function NotificationRow({
   );
 }
 
-function ProfileTab({ onOpenContinueWatching }: { onOpenContinueWatching: () => void }) {
+function ProfileTab({
+  user,
+  series,
+  onOpenContinueWatching,
+}: {
+  user: AuthUser | null;
+  series: Drama[];
+  onOpenContinueWatching: () => void;
+}) {
+  const profileName = user?.name || 'AfroReel Viewer';
+  const profileEmail = user?.email || 'Signed-in account';
+  const profileInitial = profileName.trim().charAt(0).toUpperCase() || 'A';
+  const continueItems = getContinueWatchingSeries(series);
+  const watchedEpisodeCount = continueItems.length;
+  const watchedSeriesCount = new Set(continueItems.map((drama) => drama.databaseId)).size;
+
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
       <LinearGradient colors={['#251831', Colors.background]} style={styles.profileHero}>
         <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>A</Text>
+          <Text style={styles.profileAvatarText}>{profileInitial}</Text>
         </View>
-        <Text style={styles.profileName}>Amara Okafor</Text>
-        <Text style={styles.profileEmail}>amara@example.com</Text>
+        <Text style={styles.profileName}>{profileName}</Text>
+        <Text style={styles.profileEmail}>{profileEmail}</Text>
         <Pressable style={styles.profileEditButton}>
           <Text style={styles.profileEditText}>Edit profile</Text>
         </Pressable>
       </LinearGradient>
 
       <View style={styles.profileStats}>
-        <ProfileStat value="250" label="Coins" />
+        <ProfileStat value={(user?.coinBalance ?? 0).toLocaleString()} label="Coins" />
         <View style={styles.profileStatDivider} />
-        <ProfileStat value="18" label="Episodes" />
+        <ProfileStat value={String(watchedEpisodeCount)} label="Episodes" />
         <View style={styles.profileStatDivider} />
-        <ProfileStat value="4" label="Series" />
+        <ProfileStat value={String(watchedSeriesCount)} label="Series" />
       </View>
 
       <ProfileSection title="Your activity">
@@ -1568,7 +1951,17 @@ function ContinueWatchingScreen({
   );
 }
 
-function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void }) {
+function PlayerScreen({
+  series,
+  user,
+  onUserChange,
+  onClose,
+}: {
+  series: Drama;
+  user: AuthUser | null;
+  onUserChange: (user: AuthUser) => void;
+  onClose: () => void;
+}) {
   const [remoteEpisodes, setRemoteEpisodes] = useState<PlayerEpisode[]>([]);
   const [remoteSeriesTitle, setRemoteSeriesTitle] = useState(series.title);
   const [activeEpisodeIndex, setActiveEpisodeIndex] = useState(1);
@@ -1579,6 +1972,7 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
   const [playbackError, setPlaybackError] = useState('');
   const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
   const [durationSeconds, setDurationSeconds] = useState(0);
+  const lastSavedProgressRef = useRef<Record<number, number>>({});
   const episode = remoteEpisodes[Math.min(activeEpisodeIndex, remoteEpisodes.length - 1)];
   const isLocked = Boolean(episode?.isLocked && !unlockedEpisodes.includes(episode.number));
   const videoPlayer = useVideoPlayer(playbackUrl ? { uri: playbackUrl } : null, (player) => {
@@ -1652,7 +2046,7 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
     return () => {
       isMounted = false;
     };
-  }, [series.databaseId, series.title]);
+  }, [series.seriesId, series.title]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1687,6 +2081,27 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
     };
   }, [episode?.id, isLocked]);
 
+  useEffect(() => {
+    if (!episode?.id || isLocked || currentTimeSeconds < 5) {
+      return;
+    }
+
+    const episodeId = episode.id;
+    const progressSeconds = Math.floor(currentTimeSeconds);
+    const lastSavedProgress = lastSavedProgressRef.current[episodeId] ?? 0;
+    if (progressSeconds - lastSavedProgress < 5) {
+      return;
+    }
+
+    lastSavedProgressRef.current[episodeId] = progressSeconds;
+    void fetchJson(`/api/episodes/${episodeId}/progress`, {
+      method: 'POST',
+      body: JSON.stringify({ progressSeconds }),
+    }).catch(() => {
+      lastSavedProgressRef.current[episodeId] = lastSavedProgress;
+    });
+  }, [currentTimeSeconds, episode?.id, isLocked]);
+
   const moveEpisode = useCallback(
     (direction: 'next' | 'previous') => {
       const offset = direction === 'next' ? 1 : -1;
@@ -1719,17 +2134,20 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
     [moveEpisode],
   );
 
-  const unlockCurrentEpisode = async () => {
+  const unlockCurrentEpisode = async (method: UnlockMethod) => {
     if (!episode) {
       return;
     }
 
     if (episode.id) {
       try {
-        await fetchJson(`/api/episodes/${episode.id}/unlock`, {
+        const payload = await fetchJson<{ user?: AuthUser }>(`/api/episodes/${episode.id}/unlock`, {
           method: 'POST',
-          body: JSON.stringify({ method: 'coins' }),
+          body: JSON.stringify({ method }),
         });
+        if (payload.user) {
+          onUserChange(payload.user);
+        }
       } catch {
         return;
       }
@@ -1796,7 +2214,7 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
           </Pressable>
           <View style={styles.coinChip}>
             <Ionicons name="wallet" size={14} color={Colors.textOnPrimary} />
-            <Text style={styles.coinChipText}>250 coins</Text>
+            <Text style={styles.coinChipText}>{(user?.coinBalance ?? 0).toLocaleString()} coins</Text>
           </View>
           <Pressable style={styles.playerRoundButton} accessibilityLabel="More options">
             <Ionicons name="ellipsis-horizontal" size={22} color={Colors.text} />
@@ -1826,8 +2244,8 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
             </View>
 
             <View style={styles.playerActions}>
-              <PlayerAction label="12.8k" mark="L" />
-              <PlayerAction label="860" mark="C" />
+              <PlayerAction label="Like" mark="L" />
+              <PlayerAction label="Comment" mark="C" />
               <PlayerAction label="Share" mark="S" />
               <PlayerAction label="Saved" mark="+" />
             </View>
@@ -1850,7 +2268,7 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
             <Text style={styles.lockedEpisodeEyebrow}>EPISODE {episode.number}</Text>
             <Text style={styles.lockedEpisodeTitle}>Unlock the next reveal.</Text>
             <Text style={styles.lockedEpisodeBody}>
-              You are one episode away from finding out who sent the photograph.
+              {episode.hook || `${episode.title} is ready to unlock from the database.`}
             </Text>
             <Pressable style={styles.lockedEpisodeButton} onPress={() => setIsUnlockSheetOpen(true)}>
               <Text style={styles.primaryButtonText}>Continue the drama</Text>
@@ -1864,6 +2282,7 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
           episodeNumber={episode.number}
           onClose={() => setIsUnlockSheetOpen(false)}
           onUnlock={unlockCurrentEpisode}
+          coinCost={episode.coinCost ?? 5}
         />
       ) : null}
     </View>
@@ -2014,7 +2433,7 @@ function SeriesDetailScreen({
 }
 
 function EpisodeRow({ episode, onPress }: { episode: PlayerEpisode; onPress: () => void }) {
-  const isFree = episode.isFree ?? episode.number <= 5;
+  const isFree = Boolean(episode.isFree);
 
   return (
     <Pressable style={styles.episodeRow} onPress={onPress}>
@@ -2030,11 +2449,16 @@ function EpisodeRow({ episode, onPress }: { episode: PlayerEpisode; onPress: () 
           </View>
         ) : null}
       </View>
-      <View style={[styles.episodeBadge, isFree ? styles.episodeBadgeFree : styles.episodeBadgeLocked]}>
-        <Text style={[styles.episodeBadgeText, isFree ? styles.episodeBadgeTextFree : styles.episodeBadgeTextLocked]}>
-          {isFree ? 'FREE' : '5c'}
-        </Text>
-      </View>
+      {isFree ? (
+        <View style={[styles.episodeBadge, styles.episodeBadgeFree]}>
+          <Text style={[styles.episodeBadgeText, styles.episodeBadgeTextFree]}>FREE</Text>
+        </View>
+      ) : (
+        <View style={[styles.episodeBadge, styles.episodeBadgeLocked]}>
+          <Text style={[styles.episodeBadgeText, styles.episodeBadgeTextLocked]}>{episode.coinCost ?? 0}</Text>
+          <Ionicons name="cash" size={10} color={Colors.primary} />
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -2052,12 +2476,14 @@ function PlayerAction({ label, mark }: { label: string; mark: string }) {
 
 function UnlockSheet({
   episodeNumber,
+  coinCost,
   onClose,
   onUnlock,
 }: {
   episodeNumber: number;
+  coinCost: number;
   onClose: () => void;
-  onUnlock: () => void;
+  onUnlock: (method: UnlockMethod) => void;
 }) {
   return (
     <View style={styles.unlockOverlay}>
@@ -2070,7 +2496,7 @@ function UnlockSheet({
           You are one unlock away from what happens next.
         </Text>
 
-        <Pressable style={styles.unlockOption} onPress={onUnlock}>
+        <Pressable style={styles.unlockOption} onPress={() => onUnlock('ad')}>
           <View style={styles.unlockOptionIcon}>
             <Ionicons name="play-circle" size={20} color={Colors.primary} />
           </View>
@@ -2081,7 +2507,7 @@ function UnlockSheet({
           <Text style={styles.unlockOptionReward}>+5</Text>
         </Pressable>
 
-        <Pressable style={[styles.unlockOption, styles.unlockOptionFeatured]} onPress={onUnlock}>
+        <Pressable style={[styles.unlockOption, styles.unlockOptionFeatured]} onPress={() => onUnlock('coins')}>
           <View style={styles.unlockOptionIcon}>
             <Ionicons name="wallet" size={20} color={Colors.primary} />
           </View>
@@ -2089,7 +2515,7 @@ function UnlockSheet({
             <Text style={styles.unlockOptionTitle}>Unlock now</Text>
             <Text style={styles.unlockOptionBody}>Use your current coin balance</Text>
           </View>
-          <Text style={styles.unlockOptionPrice}>5 coins</Text>
+          <Text style={styles.unlockOptionPrice}>{coinCost} coins</Text>
         </Pressable>
 
         <Pressable style={styles.unlockLater} onPress={onClose}>
@@ -2178,7 +2604,7 @@ function DramaRail({
             ) : null}
             {drama.isLocked ? (
               <View style={styles.lockBadge}>
-                <Text style={styles.lockBadgeText}>5c</Text>
+                <Text style={styles.lockBadgeText}>LOCKED</Text>
               </View>
             ) : null}
             <LinearGradient
@@ -2481,6 +2907,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  authError: {
+    color: Colors.danger,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: Spacing[4],
+  },
   authContinueButton: {
     alignItems: 'center',
     backgroundColor: Colors.primary,
@@ -2488,6 +2921,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: Spacing[5],
     minHeight: 52,
+  },
+  authContinueButtonDisabled: {
+    opacity: 0.68,
   },
   authDivider: {
     alignItems: 'center',
@@ -2521,6 +2957,9 @@ const styles = StyleSheet.create({
     gap: Spacing[2],
     justifyContent: 'center',
     minHeight: 48,
+  },
+  authSocialButtonDisabled: {
+    opacity: 0.48,
   },
   authSocialMark: {
     color: Colors.text,
@@ -2675,9 +3114,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.primary,
     borderRadius: Radius.md,
+    flexDirection: 'row',
+    gap: Spacing[2],
     justifyContent: 'center',
     marginHorizontal: Spacing[5],
-    marginTop: Spacing[4],
     minHeight: 52,
   },
   earnList: {
@@ -2745,6 +3185,66 @@ const styles = StyleSheet.create({
   },
   rewardTextDisabled: {
     color: Colors.textMuted,
+  },
+  walletHistoryList: {
+    borderTopColor: Colors.border,
+    borderTopWidth: 1,
+  },
+  walletHistoryState: {
+    borderBottomColor: Colors.border,
+    borderBottomWidth: 1,
+    color: Colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    paddingHorizontal: Spacing[5],
+    paddingVertical: Spacing[4],
+  },
+  walletHistoryRow: {
+    alignItems: 'center',
+    borderBottomColor: Colors.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: Spacing[3],
+    minHeight: 72,
+    paddingHorizontal: Spacing[5],
+    paddingVertical: Spacing[3],
+  },
+  walletHistoryIcon: {
+    alignItems: 'center',
+    borderRadius: Radius.full,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  walletHistoryIconCredit: {
+    backgroundColor: Colors.successBg,
+  },
+  walletHistoryIconSpend: {
+    backgroundColor: Colors.primaryBg,
+  },
+  walletHistoryCopy: {
+    flex: 1,
+  },
+  walletHistoryTitle: {
+    color: Colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  walletHistoryMeta: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: Spacing[1],
+  },
+  walletHistoryAmount: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  walletHistoryAmountCredit: {
+    color: Colors.success,
+  },
+  walletHistoryAmountSpend: {
+    color: Colors.primary,
   },
   paymentScreen: {
     backgroundColor: Colors.background,
@@ -2975,21 +3475,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  notificationGroup: {
-    marginTop: Spacing[5],
-  },
-  notificationGroupTitle: {
-    color: Colors.textMuted,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0,
-    paddingBottom: Spacing[3],
-    paddingHorizontal: Spacing[5],
-    textTransform: 'uppercase',
-  },
-  notificationGroupList: {
+  notificationList: {
     borderTopColor: Colors.border,
     borderTopWidth: 1,
+    marginTop: Spacing[4],
   },
   notificationRow: {
     alignItems: 'flex-start',
@@ -3870,8 +4359,12 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   episodeBadge: {
+    alignItems: 'center',
     borderRadius: Radius.full,
     borderWidth: 1,
+    flexDirection: 'row',
+    gap: 3,
+    justifyContent: 'center',
     minWidth: 40,
     paddingHorizontal: Spacing[2],
     paddingVertical: Spacing[1],

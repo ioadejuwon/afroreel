@@ -25,6 +25,93 @@ type SeriesIdentityRow = RowDataPacket & {
   series_id: string | null;
 };
 
+type UnlockEpisodeRow = RowDataPacket & {
+  coin_cost: number;
+  episode_number: number;
+  title: string;
+  series_title: string;
+};
+
+type UnlockUserRow = RowDataPacket & {
+  coin_balance: number;
+};
+
+type UnlockExistingRow = RowDataPacket & {
+  id: number;
+};
+
+type WalletTransactionRow = RowDataPacket & {
+  id: number;
+  transaction_type: "top_up" | "spend" | "reward";
+  coin_amount: number;
+  description: string;
+  episode_id: number | null;
+  series_title: string | null;
+  episode_number: number | null;
+  created_at: Date | string;
+};
+
+type EpisodeReactionType = "like" | "save";
+
+type EpisodeEngagementRow = RowDataPacket & {
+  like_count: number | string;
+  comment_count: number | string;
+  save_count: number | string;
+  has_liked: number | string;
+  has_saved: number | string;
+};
+
+type EpisodeCommentRow = RowDataPacket & {
+  id: number;
+  user_id: string;
+  body: string;
+  created_at: Date | string;
+  author_name: string | null;
+};
+
+export class InsufficientCoinsError extends Error {
+  constructor() {
+    super("Not enough coins to unlock this episode.");
+  }
+}
+
+export type UnlockEpisodeResult = {
+  coinsDeducted: number;
+  newCoinBalance: number;
+};
+
+export type WalletTopUpResult = {
+  coinsAdded: number;
+  newCoinBalance: number;
+};
+
+export type WalletTransaction = {
+  id: number;
+  type: "top_up" | "spend" | "reward";
+  coinAmount: number;
+  description: string;
+  episodeId: number | null;
+  seriesTitle: string | null;
+  episodeNumber: number | null;
+  createdAt: Date | string;
+};
+
+export type EpisodeEngagement = {
+  likeCount: number;
+  commentCount: number;
+  saveCount: number;
+  hasLiked: boolean;
+  hasSaved: boolean;
+};
+
+export type EpisodeComment = {
+  id: number;
+  userId: string;
+  authorName: string;
+  body: string;
+  createdAt: Date | string;
+};
+
 export type CreatedSeries = {
   id: number;
   seriesId: string;
@@ -80,6 +167,29 @@ type DashboardQueueRow = RowDataPacket & {
   cloudflare_ready: 0 | 1;
 };
 
+type UserSummaryRow = RowDataPacket & {
+  total_users: number | string;
+  active_users: number | string;
+  new_signups: number | string;
+  paying_users: number | string;
+  ad_earners: number | string;
+};
+
+type AdminUserRow = RowDataPacket & {
+  id: number;
+  user_id: string;
+  name: string;
+  email: string;
+  coin_balance: number;
+  is_active: 0 | 1;
+  last_login_at: Date | string | null;
+  created_at: Date | string;
+  unlock_count: number | string;
+  ad_unlock_count: number | string;
+  last_watched_title: string | null;
+  last_watched_at: Date | string | null;
+};
+
 export type DashboardData = {
   metrics: Array<{
     label: string;
@@ -101,6 +211,23 @@ export type DashboardData = {
   unlockSummary: Array<{
     label: string;
     value: string;
+  }>;
+};
+
+export type UsersData = {
+  metrics: Array<{
+    label: string;
+    value: string;
+    note: string;
+  }>;
+  rows: Array<{
+    name: string;
+    email: string;
+    coinBalance: number;
+    lastWatched: string;
+    unlockNote: string;
+    statusLabel: string;
+    statusClass: string;
   }>;
 };
 
@@ -154,6 +281,51 @@ export async function ensureContentSchema(): Promise<void> {
   for (const row of rows) {
     await pool.execute("UPDATE series SET series_id = ? WHERE id = ?", [await uniqueSeriesId(), row.id]);
   }
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(80) NOT NULL,
+      transaction_type ENUM('top_up', 'spend', 'reward') NOT NULL,
+      coin_amount INT NOT NULL,
+      description VARCHAR(255) NOT NULL,
+      episode_id INT UNSIGNED NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_wallet_transactions_user_created (user_id, created_at),
+      CONSTRAINT fk_wallet_transactions_episode
+        FOREIGN KEY (episode_id) REFERENCES episodes(id)
+        ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS episode_reactions (
+      id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(80) NOT NULL,
+      episode_id INT UNSIGNED NOT NULL,
+      reaction_type ENUM('like', 'save') NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY unique_user_episode_reaction (user_id, episode_id, reaction_type),
+      INDEX idx_episode_reactions_episode_type (episode_id, reaction_type),
+      CONSTRAINT fk_episode_reactions_episode
+        FOREIGN KEY (episode_id) REFERENCES episodes(id)
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS episode_comments (
+      id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(80) NOT NULL,
+      episode_id INT UNSIGNED NOT NULL,
+      body VARCHAR(500) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_episode_comments_episode_created (episode_id, created_at),
+      CONSTRAINT fk_episode_comments_episode
+        FOREIGN KEY (episode_id) REFERENCES episodes(id)
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 }
 
 function numberValue(value: number | string | null | undefined): number {
@@ -315,6 +487,95 @@ export async function getDashboardData(): Promise<DashboardData> {
       { label: "Ad rewards", value: compactNumber(unlocksByMethod.get("ad") ?? 0) },
       { label: "Free unlocks", value: compactNumber(unlocksByMethod.get("free") ?? 0) },
     ],
+  };
+}
+
+export async function getUsersData(): Promise<UsersData> {
+  const [summaryRows] = await pool.execute<UserSummaryRow[]>(
+    `SELECT
+        (SELECT COUNT(*) FROM mobile_users) AS total_users,
+        (SELECT COUNT(*) FROM mobile_users WHERE is_active = 1) AS active_users,
+        (SELECT COUNT(*) FROM mobile_users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS new_signups,
+        (SELECT COUNT(DISTINCT user_id) FROM episode_unlocks WHERE method = 'coins') AS paying_users,
+        (SELECT COUNT(DISTINCT user_id) FROM episode_unlocks WHERE method = 'ad') AS ad_earners`,
+  );
+
+  const [rows] = await pool.execute<AdminUserRow[]>(
+    `SELECT
+        u.id,
+        u.user_id,
+        u.name,
+        u.email,
+        u.coin_balance,
+        u.is_active,
+        u.last_login_at,
+        u.created_at,
+        COALESCE(unlocks.unlock_count, 0) AS unlock_count,
+        COALESCE(unlocks.ad_unlock_count, 0) AS ad_unlock_count,
+        (
+          SELECT s.title
+            FROM watch_progress p
+            INNER JOIN episodes e ON e.id = p.episode_id
+            INNER JOIN series s ON s.id = e.series_id
+           WHERE p.user_id = u.user_id
+           ORDER BY p.watched_at DESC
+           LIMIT 1
+        ) AS last_watched_title,
+        (
+          SELECT p.watched_at
+            FROM watch_progress p
+           WHERE p.user_id = u.user_id
+           ORDER BY p.watched_at DESC
+           LIMIT 1
+        ) AS last_watched_at
+       FROM mobile_users u
+       LEFT JOIN (
+         SELECT
+            user_id,
+            COUNT(*) AS unlock_count,
+            SUM(method = 'ad') AS ad_unlock_count
+          FROM episode_unlocks
+         GROUP BY user_id
+       ) unlocks ON unlocks.user_id = u.user_id
+      ORDER BY COALESCE(last_watched_at, u.last_login_at, u.created_at) DESC
+      LIMIT 50`,
+  );
+
+  const summary = summaryRows[0];
+  const totalUsers = numberValue(summary?.total_users);
+  const activeUsers = numberValue(summary?.active_users);
+  const newSignups = numberValue(summary?.new_signups);
+  const payingUsers = numberValue(summary?.paying_users);
+  const adEarners = numberValue(summary?.ad_earners);
+
+  return {
+    metrics: [
+      { label: "New signups", value: compactNumber(newSignups), note: "Past 7 days" },
+      { label: "Active users", value: compactNumber(activeUsers), note: `${compactNumber(totalUsers)} total accounts` },
+      { label: "Coin unlockers", value: compactNumber(payingUsers), note: "Users who unlocked with coins" },
+      { label: "Ad earners", value: compactNumber(adEarners), note: "Rewarded video users" },
+    ],
+    rows: rows.map((row) => {
+      const coinBalance = numberValue(row.coin_balance);
+      const isActive = Boolean(row.is_active);
+      const unlockCount = numberValue(row.unlock_count);
+      const adUnlockCount = numberValue(row.ad_unlock_count);
+      const statusLabel = !isActive ? "Inactive" : coinBalance < 10 ? "Low balance" : "Active";
+      const statusClass = !isActive ? "blocked" : coinBalance < 10 ? "review" : "live";
+      const unlockNote = unlockCount > 0
+        ? `${compactNumber(unlockCount)} unlock${unlockCount === 1 ? "" : "s"}`
+        : "No unlocks";
+
+      return {
+        name: row.name || row.user_id,
+        email: row.email,
+        coinBalance,
+        lastWatched: row.last_watched_title ?? "No watch history",
+        statusLabel,
+        statusClass,
+        unlockNote: adUnlockCount > 0 ? `${unlockNote} / ${compactNumber(adUnlockCount)} ad` : unlockNote,
+      };
+    }),
   };
 }
 
@@ -508,13 +769,168 @@ export async function getEpisodeForPlayback(episodeId: number, userId: string): 
   return rows[0] ?? null;
 }
 
-export async function unlockEpisode(episodeId: number, userId: string, method: "coins" | "ad" | "free"): Promise<void> {
-  await pool.execute(
-    `INSERT INTO episode_unlocks (user_id, episode_id, method)
-     VALUES (?, ?, ?)
-     ON DUPLICATE KEY UPDATE method = method`,
-    [userId, episodeId, method],
+export async function unlockEpisode(
+  episodeId: number,
+  userId: string,
+  method: "coins" | "ad" | "free",
+): Promise<UnlockEpisodeResult> {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [episodeRows] = await connection.execute<UnlockEpisodeRow[]>(
+      `SELECT e.coin_cost, e.episode_number, e.title, s.title AS series_title
+         FROM episodes e
+         INNER JOIN series s ON s.id = e.series_id
+        WHERE e.id = ?
+        LIMIT 1
+        FOR UPDATE`,
+      [episodeId],
+    );
+    const episode = episodeRows[0];
+    if (!episode) {
+      throw new Error("Episode is not available.");
+    }
+
+    const [userRows] = await connection.execute<UnlockUserRow[]>(
+      `SELECT coin_balance
+         FROM mobile_users
+        WHERE user_id = ? AND is_active = 1
+        LIMIT 1
+        FOR UPDATE`,
+      [userId],
+    );
+    const user = userRows[0];
+    if (!user) {
+      throw new Error("Sign in to continue.");
+    }
+
+    const [existingRows] = await connection.execute<UnlockExistingRow[]>(
+      "SELECT id FROM episode_unlocks WHERE user_id = ? AND episode_id = ? LIMIT 1",
+      [userId, episodeId],
+    );
+    const alreadyUnlocked = existingRows.length > 0;
+    const coinCost = Number(episode.coin_cost ?? 0);
+    const coinsDeducted = method === "coins" && !alreadyUnlocked ? coinCost : 0;
+    const currentBalance = Number(user.coin_balance ?? 0);
+
+    if (coinsDeducted > currentBalance) {
+      throw new InsufficientCoinsError();
+    }
+
+    if (coinsDeducted > 0) {
+      await connection.execute(
+        "UPDATE mobile_users SET coin_balance = coin_balance - ? WHERE user_id = ?",
+        [coinsDeducted, userId],
+      );
+      await connection.execute(
+        `INSERT INTO wallet_transactions (user_id, transaction_type, coin_amount, description, episode_id)
+         VALUES (?, 'spend', ?, ?, ?)`,
+        [
+          userId,
+          -coinsDeducted,
+          `Unlocked ${episode.series_title} Episode ${episode.episode_number}: ${episode.title}`,
+          episodeId,
+        ],
+      );
+    }
+
+    await connection.execute(
+      `INSERT INTO episode_unlocks (user_id, episode_id, method)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE method = method`,
+      [userId, episodeId, method],
+    );
+
+    await connection.commit();
+
+    return {
+      coinsDeducted,
+      newCoinBalance: currentBalance - coinsDeducted,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function topUpMobileUserWallet(userId: string, coins: number): Promise<WalletTopUpResult | null> {
+  if (!userId || !Number.isInteger(coins) || coins <= 0) {
+    return null;
+  }
+
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    await connection.execute(
+      "UPDATE mobile_users SET coin_balance = coin_balance + ? WHERE user_id = ? AND is_active = 1",
+      [coins, userId],
+    );
+    await connection.execute(
+      `INSERT INTO wallet_transactions (user_id, transaction_type, coin_amount, description)
+       VALUES (?, 'top_up', ?, ?)`,
+      [userId, coins, `Added ${coins.toLocaleString("en")} coins`],
+    );
+
+    const [rows] = await connection.execute<UnlockUserRow[]>(
+      "SELECT coin_balance FROM mobile_users WHERE user_id = ? AND is_active = 1 LIMIT 1",
+      [userId],
+    );
+    const user = rows[0];
+
+    if (!user) {
+      await connection.rollback();
+      return null;
+    }
+
+    await connection.commit();
+
+    return {
+      coinsAdded: coins,
+      newCoinBalance: Number(user.coin_balance ?? 0),
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function listWalletTransactions(userId: string): Promise<WalletTransaction[]> {
+  const [rows] = await pool.execute<WalletTransactionRow[]>(
+    `SELECT
+        t.id,
+        t.transaction_type,
+        t.coin_amount,
+        t.description,
+        t.episode_id,
+        s.title AS series_title,
+        e.episode_number,
+        t.created_at
+       FROM wallet_transactions t
+       LEFT JOIN episodes e ON e.id = t.episode_id
+       LEFT JOIN series s ON s.id = e.series_id
+      WHERE t.user_id = ?
+      ORDER BY t.created_at DESC, t.id DESC
+      LIMIT 25`,
+    [userId],
   );
+
+  return rows.map((row) => ({
+    id: row.id,
+    type: row.transaction_type,
+    coinAmount: Number(row.coin_amount ?? 0),
+    description: row.description,
+    episodeId: row.episode_id,
+    seriesTitle: row.series_title,
+    episodeNumber: row.episode_number,
+    createdAt: row.created_at,
+  }));
 }
 
 export async function saveProgress(episodeId: number, userId: string, progressSeconds: number): Promise<void> {
@@ -524,4 +940,97 @@ export async function saveProgress(episodeId: number, userId: string, progressSe
      ON DUPLICATE KEY UPDATE progress_seconds = VALUES(progress_seconds)`,
     [userId, episodeId, progressSeconds],
   );
+}
+
+export async function getEpisodeEngagement(episodeId: number, userId: string): Promise<EpisodeEngagement> {
+  const [rows] = await pool.execute<EpisodeEngagementRow[]>(
+    `SELECT
+        (SELECT COUNT(*) FROM episode_reactions WHERE episode_id = ? AND reaction_type = 'like') AS like_count,
+        (SELECT COUNT(*) FROM episode_comments WHERE episode_id = ?) AS comment_count,
+        (SELECT COUNT(*) FROM episode_reactions WHERE episode_id = ? AND reaction_type = 'save') AS save_count,
+        (SELECT COUNT(*) FROM episode_reactions WHERE user_id = ? AND episode_id = ? AND reaction_type = 'like') AS has_liked,
+        (SELECT COUNT(*) FROM episode_reactions WHERE user_id = ? AND episode_id = ? AND reaction_type = 'save') AS has_saved`,
+    [episodeId, episodeId, episodeId, userId, episodeId, userId, episodeId],
+  );
+  const row = rows[0];
+
+  return {
+    likeCount: numberValue(row?.like_count),
+    commentCount: numberValue(row?.comment_count),
+    saveCount: numberValue(row?.save_count),
+    hasLiked: numberValue(row?.has_liked) > 0,
+    hasSaved: numberValue(row?.has_saved) > 0,
+  };
+}
+
+export async function setEpisodeReaction(
+  episodeId: number,
+  userId: string,
+  reactionType: EpisodeReactionType,
+  isActive: boolean,
+): Promise<EpisodeEngagement> {
+  if (isActive) {
+    await pool.execute(
+      `INSERT INTO episode_reactions (user_id, episode_id, reaction_type)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE reaction_type = reaction_type`,
+      [userId, episodeId, reactionType],
+    );
+  } else {
+    await pool.execute(
+      "DELETE FROM episode_reactions WHERE user_id = ? AND episode_id = ? AND reaction_type = ?",
+      [userId, episodeId, reactionType],
+    );
+  }
+
+  return getEpisodeEngagement(episodeId, userId);
+}
+
+export async function listEpisodeComments(episodeId: number): Promise<EpisodeComment[]> {
+  const [rows] = await pool.execute<EpisodeCommentRow[]>(
+    `SELECT c.id, c.user_id, c.body, c.created_at, u.name AS author_name
+       FROM episode_comments c
+       LEFT JOIN mobile_users u ON u.user_id = c.user_id
+      WHERE c.episode_id = ?
+      ORDER BY c.created_at DESC, c.id DESC
+      LIMIT 50`,
+    [episodeId],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    authorName: row.author_name || "AfroReel Viewer",
+    body: row.body,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function addEpisodeComment(episodeId: number, userId: string, body: string): Promise<EpisodeComment> {
+  const cleanBody = body.trim().replace(/\s+/g, " ").slice(0, 500);
+  if (!cleanBody) {
+    throw new Error("Comment cannot be empty.");
+  }
+
+  const [result] = await pool.execute<ResultSetHeader>(
+    "INSERT INTO episode_comments (user_id, episode_id, body) VALUES (?, ?, ?)",
+    [userId, episodeId, cleanBody],
+  );
+  const [rows] = await pool.execute<EpisodeCommentRow[]>(
+    `SELECT c.id, c.user_id, c.body, c.created_at, u.name AS author_name
+       FROM episode_comments c
+       LEFT JOIN mobile_users u ON u.user_id = c.user_id
+      WHERE c.id = ?
+      LIMIT 1`,
+    [result.insertId],
+  );
+  const row = rows[0];
+
+  return {
+    id: row.id,
+    userId: row.user_id,
+    authorName: row.author_name || "AfroReel Viewer",
+    body: row.body,
+    createdAt: row.created_at,
+  };
 }

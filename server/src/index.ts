@@ -4,7 +4,7 @@ import session from "express-session";
 import createMySQLSession from "express-mysql-session";
 import csrf from "csurf";
 import { config, isProduction } from "./config";
-import { attachCurrentAdmin } from "./auth";
+import { attachCurrentAdmin, ensureMobileAuthSchema } from "./auth";
 import { adminRouter } from "./routes/admin";
 import { apiRouter } from "./routes/api";
 import { ensureUploadDirs, uploadRoot } from "./uploads";
@@ -127,6 +127,7 @@ app.use(errorHandler);
 
 async function start(): Promise<void> {
   await ensureUploadDirs();
+  await ensureMobileAuthSchema();
   await ensureContentSchema();
 
   app.listen(config.port, () => {
