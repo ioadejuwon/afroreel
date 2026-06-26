@@ -227,13 +227,13 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
     setStatus(status, "Preparing video upload...");
 
     try {
-      const upload = await uploadEpisodeVideo(episodeId, file, (progress) => {
+      const upload = await uploadLocalVideoWithProgress(episodeId, file, (progress) => {
         setStatus(status, `Uploading video... ${progress}%`);
       });
       item.dataset.videoUid = upload.uid;
-      setStatus(status, upload.ready ? "Video attached." : "Uploaded. Cloudflare is processing.");
+      setStatus(status, "Video attached.");
       if (videoState) {
-        videoState.textContent = upload.ready ? "Ready" : "Processing";
+        videoState.textContent = "Ready";
       }
       if (attachedVideo) {
         attachedVideo.textContent = `Video: ${file.name}`;
@@ -300,10 +300,10 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
       }
 
       setStatus(status, "Preparing video upload...");
-      const upload = await uploadEpisodeVideo(payload.episodeId, file, (progress) => {
+      await uploadLocalVideoWithProgress(payload.episodeId, file, (progress) => {
         setStatus(status, `Uploading video... ${progress}%`);
       });
-      setStatus(status, upload.ready ? "Video attached." : "Uploaded. Cloudflare is processing.");
+      setStatus(status, "Video attached.");
       window.location.assign(payload.redirectTo || viewPath("episodes"));
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Episode creation failed.");
@@ -327,7 +327,7 @@ document.querySelectorAll("[data-refresh-video]").forEach((button) => {
     }
 
     button.disabled = true;
-    setStatus(status, "Checking Cloudflare...");
+    setStatus(status, "Checking video...");
 
     try {
       const video = await postJson(appUrl(`/admin/api/episodes/${episodeId}/refresh-video`), { uid });
@@ -449,57 +449,6 @@ function readAsDataUrl(file) {
   });
 }
 
-async function createTusUpload(episodeId, file) {
-  return postJson(appUrl(`/admin/api/episodes/${episodeId}/tus-upload-url`), {
-    uploadLength: file.size,
-    name: file.name,
-    maxDurationSeconds: 1800,
-  });
-}
-
-async function uploadLocalVideo(episodeId, file) {
-  const response = await fetch(appUrl(`/admin/api/episodes/${episodeId}/local-video`), {
-    method: "POST",
-    headers: {
-      "content-type": file.type || "application/octet-stream",
-      "csrf-token": csrfToken,
-      "x-file-name": file.name,
-    },
-    body: file,
-  });
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(payload.error || response.statusText);
-  }
-
-  return payload;
-}
-
-async function uploadEpisodeVideo(episodeId, file, onProgress) {
-  try {
-    const upload = await createTusUpload(episodeId, file);
-    await uploadFileWithTus(upload.uploadUrl, file, onProgress);
-    onProgress(100);
-
-    return {
-      uid: upload.uid,
-      ready: false,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (!message.includes("Cloudflare Stream credentials are not configured")) {
-      throw error;
-    }
-
-    const upload = await uploadLocalVideoWithProgress(episodeId, file, onProgress);
-    return {
-      uid: upload.uid,
-      ready: Boolean(upload.ready),
-    };
-  }
-}
-
 function uploadLocalVideoWithProgress(episodeId, file, onProgress) {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
@@ -527,7 +476,7 @@ function uploadLocalVideoWithProgress(episodeId, file, onProgress) {
     });
 
     request.addEventListener("error", () => reject(new Error("Video upload failed. Check the connection and try again.")));
-    request.addEventListener("timeout", () => reject(new Error("Video upload timed out. Try a smaller file or use Cloudflare Stream.")));
+    request.addEventListener("timeout", () => reject(new Error("Video upload timed out. Try a smaller file or a stronger connection.")));
     request.send(file);
   });
 }
@@ -566,32 +515,6 @@ window.addEventListener("popstate", () => {
 const initialView = viewFromPath() || window.location.hash.replace("#", "") || serverInitialView;
 if (initialView) {
   setView(initialView, { updateUrl: false });
-}
-
-async function uploadFileWithTus(uploadUrl, file, onProgress) {
-  const chunkSize = 8 * 1024 * 1024;
-  let offset = 0;
-
-  while (offset < file.size) {
-    const chunk = file.slice(offset, Math.min(offset + chunkSize, file.size));
-    const response = await fetch(uploadUrl, {
-      method: "PATCH",
-      headers: {
-        "Tus-Resumable": "1.0.0",
-        "Upload-Offset": String(offset),
-        "Content-Type": "application/offset+octet-stream",
-      },
-      body: chunk,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Cloudflare upload failed: ${response.status}`);
-    }
-
-    const nextOffset = Number.parseInt(response.headers.get("Upload-Offset") || "", 10);
-    offset = Number.isNaN(nextOffset) ? offset + chunk.size : nextOffset;
-    onProgress(Math.min(100, Math.round((offset / file.size) * 100)));
-  }
 }
 
 async function postJson(url, body) {
