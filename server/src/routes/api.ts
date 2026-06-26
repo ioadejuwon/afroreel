@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { config } from "../config";
 import {
   getEpisodeForPlayback,
@@ -11,18 +11,22 @@ import { createPlaybackUrl } from "../cloudflare";
 
 export const apiRouter = Router();
 
-apiRouter.get("/series", async (_req, res, next) => {
+apiRouter.get("/series", async (req, res, next) => {
   try {
-    const series = await listSeries(false);
+    const series = await listSeries(false, mobileUserId(req));
     res.json({
       series: series.map((item) => ({
-        id: item.id,
+        id: item.series_id,
+        databaseId: item.id,
         title: item.title,
         slug: item.slug,
         synopsis: item.synopsis,
         genres: splitGenres(item.genres),
-        posterUrl: absolutize(item.poster_url),
-        episodeCount: item.episode_count,
+        posterUrl: absolutize(req, item.poster_url),
+        episodeCount: Number(item.episode_count ?? 0),
+        freeEpisodeCount: Number(item.free_episode_count ?? 0),
+        latestEpisodeAt: item.latest_episode_at,
+        progressSeconds: Number(item.progress_seconds ?? 0),
         status: item.status,
       })),
     });
@@ -33,7 +37,7 @@ apiRouter.get("/series", async (_req, res, next) => {
 
 apiRouter.get("/series/:seriesId/episodes", async (req, res, next) => {
   try {
-    const seriesId = Number.parseInt(req.params.seriesId, 10);
+    const seriesId = req.params.seriesId;
     const userId = mobileUserId(req);
     const episodes = await listEpisodesForSeries(seriesId, false, userId);
 
@@ -94,7 +98,10 @@ apiRouter.post("/episodes/:episodeId/playback", async (req, res, next) => {
       return;
     }
 
-    const playbackUrl = await createPlaybackUrl(episode.cloudflare_video_uid);
+    const playbackUrl = episode.cloudflare_video_uid.startsWith("local:")
+      ? absolutize(req, episode.cloudflare_video_uid.replace(/^local:/, ""))
+      : await createPlaybackUrl(episode.cloudflare_video_uid);
+
     res.json({
       episodeId,
       playbackUrl,
@@ -125,10 +132,11 @@ function splitGenres(value: string | null): string[] {
   return value ? value.split(",").map((item) => item.trim()).filter(Boolean) : [];
 }
 
-function absolutize(value: string | null): string | null {
+function absolutize(req: Request, value: string | null): string | null {
   if (!value || value.startsWith("http")) {
     return value;
   }
 
-  return config.publicBaseUrl ? `${config.publicBaseUrl}${value}` : value;
+  const baseUrl = config.publicBaseUrl || `${req.protocol}://${req.get("host")}`;
+  return `${baseUrl}${value.startsWith("/") ? value : `/${value}`}`;
 }

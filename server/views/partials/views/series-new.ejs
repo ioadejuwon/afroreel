@@ -1,0 +1,47 @@
+<section class="view" id="series-new" aria-label="Create series">
+  <div class="section-head split-head">
+    <div>
+      <h2>Create Series</h2>
+      <span class="section-note">Add a title, metadata, and thumbnail for the app catalog.</span>
+    </div>
+    <a class="ghost-button" href="<%= basePath %>/admin/series">Back to Series</a>
+  </div>
+
+  <form class="panel content-form series-create-form" method="post" action="<%= basePath %>/admin/series" data-poster-form>
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+    <input type="hidden" name="posterDataUrl" data-poster-data />
+
+    <label class="poster-dropzone" data-poster-dropzone>
+      <input type="file" accept="image/png,image/jpeg,image/webp" data-poster-file />
+      <span class="poster-preview" data-poster-preview aria-hidden="true"></span>
+      <span class="poster-dropzone-kicker">Thumbnail</span>
+      <strong data-poster-file-name>Drop image here or choose file</strong>
+      <em>JPEG, PNG, or WebP · 20 MB max</em>
+    </label>
+
+    <div class="series-fields">
+      <label>
+        <span>Series name</span>
+        <input name="title" required placeholder="Lagos Secrets" />
+      </label>
+      <label>
+        <span>Genres / tags</span>
+        <input name="genres" placeholder="Romance, Betrayal, Lagos" />
+      </label>
+      <label>
+        <span>Synopsis</span>
+        <textarea name="synopsis" rows="4" placeholder="A short story description for the app."></textarea>
+      </label>
+      <div class="series-form-footer">
+        <label>
+          <span>Status</span>
+          <select name="status">
+            <option value="draft">Draft</option>
+            <option value="live">Live</option>
+          </select>
+        </label>
+        <button class="primary-button" type="submit">Create Series</button>
+      </div>
+    </div>
+  </form>
+</section>

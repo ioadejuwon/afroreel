@@ -1,0 +1,167 @@
+<section class="view" id="series-detail" aria-label="Series detail">
+  <% if (!selectedSeries) { %>
+    <article class="empty-card">Series not found.</article>
+  <% } else { %>
+    <div class="section-head split-head">
+      <div>
+        <h2><%= selectedSeries.title %></h2>
+        <span class="section-note"><%= selectedEpisodes.length %> episode<%= selectedEpisodes.length === 1 ? '' : 's' %> in this series.</span>
+      </div>
+      <a class="ghost-button" href="<%= basePath %>/admin/series">Back to Series</a>
+    </div>
+
+    <article class="panel series-detail-panel">
+      <div class="series-detail-summary">
+        <% if (selectedSeries.poster_url) { %>
+          <div class="poster series-manage-poster" style="background-image: url('<%= selectedSeries.poster_url %>')"></div>
+        <% } else { %>
+          <div class="poster series-manage-poster"></div>
+        <% } %>
+        <div>
+          <div class="panel-header">
+            <div>
+              <h2><%= selectedSeries.title %></h2>
+              <span><span data-status-label><%= selectedSeries.status %></span> · <%= selectedSeries.episode_count %> episodes</span>
+            </div>
+            <form class="inline-form" method="post" action="<%= basePath %>/admin/series/<%= selectedSeries.id %>/status" data-status-form data-entity-type="series">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="status" value="<%= selectedSeries.status === 'live' ? 'draft' : 'live' %>" />
+              <button class="ghost-button" type="submit" data-status-button><%= selectedSeries.status === 'live' ? 'Move to Draft' : 'Publish' %></button>
+            </form>
+          </div>
+          <% if (selectedSeries.synopsis) { %>
+            <p class="series-detail-synopsis"><%= selectedSeries.synopsis %></p>
+          <% } %>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel upload-panel">
+      <div class="panel-header">
+        <h2>Episodes</h2>
+        <span>Under <%= selectedSeries.title %></span>
+      </div>
+
+      <% if (selectedEpisodes.length === 0) { %>
+        <div class="empty-card">No episodes yet.</div>
+      <% } else { %>
+        <div class="episode-upload-list">
+          <% selectedEpisodes.forEach((episode) => { %>
+            <%
+              const videoUid = episode.cloudflare_video_uid || "";
+              const attachedVideo = videoUid
+                ? videoUid.replace(/^local:\/uploads\/videos\//, "").replace(/^local:/, "").replace(/^.*\//, "")
+                : "";
+            %>
+            <article class="episode-upload-card" data-episode-id="<%= episode.id %>" data-video-uid="<%= episode.cloudflare_video_uid || '' %>">
+              <div class="episode-main">
+                <span class="episode-kicker">Ep <%= episode.episode_number %></span>
+                <strong><%= episode.title %></strong>
+                <div class="episode-meta">
+                  <span><%= episode.is_free ? 'Free' : 'Locked' %></span>
+                  <span><%= episode.is_free ? 0 : episode.coin_cost %> coins</span>
+                  <span data-video-state>
+                    <% if (episode.cloudflare_ready) { %>
+                      Ready
+                    <% } else if (episode.cloudflare_video_uid) { %>
+                      Processing
+                    <% } else { %>
+                      Missing video
+                    <% } %>
+                  </span>
+                  <span class="status <%= episode.status === 'processing' ? 'review' : episode.status %>" data-status-label><%= episode.status %></span>
+                </div>
+                <span class="attached-video" data-attached-video><%= attachedVideo ? `Video: ${attachedVideo}` : 'No video attached' %></span>
+              </div>
+              <div class="upload-cell">
+                <label class="video-dropzone" data-video-dropzone>
+                  <input type="file" accept="video/*" data-video-file />
+                  <span>Video file</span>
+                  <strong data-video-file-name><%= attachedVideo || 'Drop video here or choose file' %></strong>
+                  <em>MP4 or supported video file</em>
+                </label>
+                <div class="upload-actions">
+                  <button class="primary-button" type="button" data-upload-video>Upload</button>
+                  <% if (episode.cloudflare_video_uid) { %>
+                    <button class="ghost-button" type="button" data-refresh-video>Refresh</button>
+                  <% } %>
+                </div>
+                <span data-upload-status></span>
+              </div>
+              <div class="series-episode-actions">
+                <form method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status" data-status-form data-entity-type="episode">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <input type="hidden" name="returnTo" value="series-detail" />
+                  <input type="hidden" name="seriesId" value="<%= selectedSeries.id %>" />
+                  <input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>" />
+                  <input type="hidden" name="status" value="<%= episode.status === 'live' ? 'draft' : 'live' %>" />
+                  <button class="ghost-button" type="submit" data-status-button><%= episode.status === 'live' ? 'Draft' : 'Publish' %></button>
+                </form>
+                <form method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/delete" data-delete-episode-form>
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <input type="hidden" name="returnTo" value="series-detail" />
+                  <input type="hidden" name="seriesId" value="<%= selectedSeries.id %>" />
+                  <input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>" />
+                  <button class="ghost-button danger-button" type="submit">Remove</button>
+                </form>
+              </div>
+            </article>
+          <% }) %>
+        </div>
+      <% } %>
+    </article>
+
+    <form class="panel content-form episode-composer" method="post" action="<%= basePath %>/admin/episodes" data-episode-create-form>
+      <div class="form-intro span-2">
+        <p class="eyebrow">Add</p>
+        <h3>Episode details</h3>
+      </div>
+      <% if (episodeFormError) { %>
+        <div class="form-error span-2"><%= episodeFormError %></div>
+      <% } %>
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <input type="hidden" name="seriesId" value="<%= selectedSeries.id %>" />
+      <input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>" />
+      <input type="hidden" name="returnTo" value="series-detail" />
+      <label>
+        <span>Episode number</span>
+        <input type="number" name="episodeNumber" min="1" value="<%= selectedEpisodes.length + 1 %>" required />
+      </label>
+      <label>
+        <span>Title</span>
+        <input name="title" required placeholder="The Photograph" />
+      </label>
+      <label>
+        <span>Coin cost</span>
+        <input type="number" name="coinCost" min="0" value="5" />
+      </label>
+      <label>
+        <span>Status</span>
+        <select name="status">
+          <option value="draft">Draft</option>
+          <option value="live">Live</option>
+        </select>
+      </label>
+      <label class="span-2">
+        <span>Hook</span>
+        <textarea name="hook" rows="3" placeholder="The one-line cliffhanger."></textarea>
+      </label>
+      <label>
+        <span>Release date</span>
+        <input type="date" name="releaseDate" />
+      </label>
+      <label class="check-row">
+        <input type="checkbox" name="isFree" />
+        <span>Free episode</span>
+      </label>
+      <label class="span-2 video-create-dropzone" data-video-create-dropzone>
+        <input type="file" accept="video/*" data-create-video-file required />
+        <span>Video file</span>
+        <strong data-create-video-file-name>Drop video here or choose file</strong>
+        <em>MP4 or supported video file</em>
+      </label>
+      <span class="span-2 form-status" data-create-episode-status></span>
+      <button class="primary-button" type="submit">Add Episode</button>
+    </form>
+  <% } %>
+</section>

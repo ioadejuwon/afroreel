@@ -1,5 +1,6 @@
 import { ComponentProps, useCallback, useEffect, useMemo, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
@@ -7,6 +8,7 @@ import {
   ImageSourcePropType,
   PanResponder,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,6 +27,7 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 
 type Drama = {
   id: string;
+  seriesId: string;
   databaseId: number;
   title: string;
   genre: string;
@@ -34,8 +37,11 @@ type Drama = {
   posterImage?: ImageSourcePropType;
   mood: string;
   progress?: number;
+  progressSeconds?: number;
   isFree?: boolean;
   isLocked?: boolean;
+  freeEpisodeCount?: number;
+  latestEpisodeAt?: string | null;
   rank?: number;
   status?: 'Ongoing' | 'Completed';
 };
@@ -52,8 +58,9 @@ type PlayerEpisode = {
   isFree?: boolean;
   coinCost?: number;
 };
-type AppView = 'tabs' | 'series-detail' | 'continue-watching' | 'payment';
+type AppView = 'tabs' | 'series-detail' | 'continue-watching' | 'category-list' | 'payment';
 type EntryStep = 'splash' | 'onboarding' | 'auth' | 'app';
+type SeriesCategory = 'continue' | 'trending' | 'new' | 'free';
 
 const tabs: Tab[] = ['Home', 'Discover', 'Wallet', 'Alerts', 'Profile'];
 const tabIcons: Record<Tab, IconName> = {
@@ -113,16 +120,54 @@ const coinPackages = [
   { id: 'premium', name: 'Premium', coins: 1000, price: '$12.99', bonus: '+150 bonus' },
 ];
 
-const API_BASE_URL = process.env?.EXPO_PUBLIC_API_BASE_URL ?? 'https://rellowmedia.com/afroreel';
+const categoryTitles: Record<SeriesCategory, string> = {
+  continue: 'Continue Watching',
+  trending: 'Trending Now',
+  new: 'New Episodes',
+  free: 'Free to Watch',
+};
+
+function getExpoHost(): string | null {
+  const constants = Constants as unknown as {
+    expoConfig?: { hostUri?: string; extra?: { apiBaseUrl?: string } };
+    manifest?: { debuggerHost?: string; hostUri?: string };
+  };
+  const hostUri = constants.expoConfig?.hostUri ?? constants.manifest?.hostUri ?? constants.manifest?.debuggerHost;
+  const host = hostUri?.split(':')[0];
+
+  return host || null;
+}
+
+function getConfiguredApiBaseUrl(): string | undefined {
+  const constants = Constants as unknown as {
+    expoConfig?: { extra?: { apiBaseUrl?: string } };
+  };
+
+  return process.env?.EXPO_PUBLIC_API_BASE_URL ?? constants.expoConfig?.extra?.apiBaseUrl;
+}
+
+function createLocalApiBaseUrl(): string {
+  const expoHost = getExpoHost();
+  const canUseExpoHost = expoHost && !expoHost.includes('exp.direct');
+
+  return `http://${canUseExpoHost ? expoHost : '192.168.68.120'}:3000`;
+}
+const API_BASE_URL = getConfiguredApiBaseUrl() ?? createLocalApiBaseUrl();
+const API_ORIGIN = API_BASE_URL.match(/^https?:\/\/[^/]+/)?.[0] ?? API_BASE_URL;
+const API_TIMEOUT_MS = 10000;
 
 type ApiSeries = {
-  id: number;
+  id: string;
+  databaseId: number;
   title: string;
   slug: string;
   synopsis: string | null;
   genres: string[];
   posterUrl: string | null;
   episodeCount: number;
+  freeEpisodeCount: number;
+  latestEpisodeAt: string | null;
+  progressSeconds: number;
   status: string;
 };
 
@@ -139,20 +184,45 @@ type ApiEpisode = {
 };
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      'content-type': 'application/json',
-      'x-afroreel-user-id': 'demo-user',
-      ...(options?.headers ?? {}),
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const url = `${API_BASE_URL}${path}`;
+
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        'x-afroreel-user-id': 'demo-user',
+        ...(options?.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error && error.name === 'AbortError'
+      ? `Timed out loading ${url}`
+      : `Could not reach ${url}`;
+
+    throw new Error(message);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw new Error(`Request failed: ${response.status} from ${url}`);
   }
 
   return response.json() as Promise<T>;
+}
+
+function resolveMediaUrl(value: string | null): string | null {
+  if (!value || value.startsWith('http')) {
+    return value;
+  }
+
+  return `${API_ORIGIN}${value.startsWith('/') ? value : `/${value}`}`;
 }
 
 const posterGradients: readonly (readonly [string, string])[] = [
@@ -167,20 +237,75 @@ const posterGradients: readonly (readonly [string, string])[] = [
 function mapApiSeriesToDrama(item: ApiSeries, index: number): Drama {
   const tags = item.genres.length > 0 ? item.genres : ['Drama'];
   const genre = tags.join(' / ');
+  const progressSeconds = item.progressSeconds ?? 0;
 
   return {
     id: item.slug || String(item.id),
-    databaseId: item.id,
+    seriesId: item.id,
+    databaseId: item.databaseId,
     title: item.title,
     genre,
     tags: [...tags, index === 0 ? 'Trending' : '', item.status === 'live' ? 'Ongoing' : ''].filter(Boolean),
     episodeCount: item.episodeCount,
+    freeEpisodeCount: item.freeEpisodeCount ?? 0,
+    isFree: (item.freeEpisodeCount ?? 0) > 0,
+    latestEpisodeAt: item.latestEpisodeAt,
+    progressSeconds,
+    progress: progressSeconds > 0 ? 35 : undefined,
     posterGradient: posterGradients[index % posterGradients.length],
-    posterImage: item.posterUrl ? { uri: item.posterUrl } : undefined,
+    posterImage: item.posterUrl ? { uri: resolveMediaUrl(item.posterUrl) ?? item.posterUrl } : undefined,
     mood: item.synopsis || 'A new AfroReel story is ready to watch.',
     rank: index + 1,
     status: item.status === 'live' ? 'Ongoing' : 'Completed',
   };
+}
+
+function formatPlaybackTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return '00:00';
+  }
+
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
+}
+
+function getContinueWatchingSeries(series: Drama[]): Drama[] {
+  return series
+    .filter((drama) => (drama.progressSeconds ?? 0) > 0)
+    .sort((a, b) => (b.progressSeconds ?? 0) - (a.progressSeconds ?? 0));
+}
+
+function getTrendingSeries(series: Drama[]): Drama[] {
+  return [...series]
+    .filter((drama) => drama.episodeCount > 0)
+    .sort((a, b) => b.episodeCount - a.episodeCount || (a.rank ?? 0) - (b.rank ?? 0));
+}
+
+function getNewEpisodeSeries(series: Drama[]): Drama[] {
+  return [...series]
+    .filter((drama) => drama.latestEpisodeAt)
+    .sort((a, b) => new Date(b.latestEpisodeAt ?? 0).getTime() - new Date(a.latestEpisodeAt ?? 0).getTime());
+}
+
+function getFreeSeries(series: Drama[]): Drama[] {
+  return series.filter((drama) => drama.isFree);
+}
+
+function getCategorySeries(series: Drama[], category: SeriesCategory): Drama[] {
+  if (category === 'continue') {
+    return getContinueWatchingSeries(series);
+  }
+  if (category === 'trending') {
+    return getTrendingSeries(series);
+  }
+  if (category === 'new') {
+    return getNewEpisodeSeries(series);
+  }
+
+  return getFreeSeries(series);
 }
 
 export default function HomeScreen() {
@@ -188,42 +313,72 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [activeView, setActiveView] = useState<AppView>('tabs');
+  const [activeCategory, setActiveCategory] = useState<SeriesCategory>('trending');
   const [seriesCatalog, setSeriesCatalog] = useState<Drama[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<Drama | null>(null);
+  const [isRefreshingCatalog, setIsRefreshingCatalog] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+
+  const loadSeriesCatalog = useCallback(async () => {
+    const payload = await fetchJson<{ series: ApiSeries[] }>('/api/series');
+
+    return payload.series.map(mapApiSeriesToDrama);
+  }, []);
+
+  const applySeriesCatalog = useCallback((nextSeries: Drama[]) => {
+    setSeriesCatalog(nextSeries);
+    setSelectedSeries((currentSeries) => {
+      if (nextSeries.length === 0) {
+        return null;
+      }
+
+      if (!currentSeries) {
+        return nextSeries[0];
+      }
+
+      return nextSeries.find((item) => item.databaseId === currentSeries.databaseId) ?? nextSeries[0];
+    });
+  }, []);
+
+  const refreshSeriesCatalog = useCallback(async () => {
+    setIsRefreshingCatalog(true);
+
+    try {
+      applySeriesCatalog(await loadSeriesCatalog());
+      setCatalogError('');
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Could not load local API data.');
+      applySeriesCatalog([]);
+    } finally {
+      setIsRefreshingCatalog(false);
+    }
+  }, [applySeriesCatalog, loadSeriesCatalog]);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadSeriesCatalog() {
+    async function loadInitialSeriesCatalog() {
       try {
-        const payload = await fetchJson<{ series: ApiSeries[] }>('/api/series');
-        if (!isMounted) {
-          return;
-        }
+        const nextSeries = await loadSeriesCatalog();
 
-        if (payload.series.length === 0) {
-          setSeriesCatalog([]);
-          setSelectedSeries(null);
-          return;
-        }
-
-        const nextSeries = payload.series.map(mapApiSeriesToDrama);
-        setSeriesCatalog(nextSeries);
-        setSelectedSeries(nextSeries[0]);
-      } catch {
         if (isMounted) {
-          setSeriesCatalog([]);
-          setSelectedSeries(null);
+          setCatalogError('');
+          applySeriesCatalog(nextSeries);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setCatalogError(error instanceof Error ? error.message : 'Could not load local API data.');
+          applySeriesCatalog([]);
         }
       }
     }
 
-    void loadSeriesCatalog();
+    void loadInitialSeriesCatalog();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [applySeriesCatalog, loadSeriesCatalog]);
 
   const openSeries = useCallback((series: Drama) => {
     setSelectedSeries(series);
@@ -236,6 +391,11 @@ export default function HomeScreen() {
     }
 
     setIsPlayerOpen(true);
+  }, []);
+
+  const openCategory = useCallback((category: SeriesCategory) => {
+    setActiveCategory(category);
+    setActiveView('category-list');
   }, []);
 
   if (entryStep === 'splash') {
@@ -260,6 +420,8 @@ export default function HomeScreen() {
         series={selectedSeries}
         onBack={() => setActiveView('tabs')}
         onStartWatching={() => openPlayer(selectedSeries)}
+        onRefreshCatalog={refreshSeriesCatalog}
+        isRefreshingCatalog={isRefreshingCatalog}
       />
     );
   }
@@ -270,6 +432,22 @@ export default function HomeScreen() {
         series={seriesCatalog}
         onBack={() => setActiveView('tabs')}
         onResume={openPlayer}
+        onRefresh={refreshSeriesCatalog}
+        isRefreshing={isRefreshingCatalog}
+      />
+    );
+  }
+
+  if (activeView === 'category-list') {
+    return (
+      <CategorySeriesScreen
+        title={categoryTitles[activeCategory]}
+        series={getCategorySeries(seriesCatalog, activeCategory)}
+        category={activeCategory}
+        onBack={() => setActiveView('tabs')}
+        onOpenSeries={openSeries}
+        onRefresh={refreshSeriesCatalog}
+        isRefreshing={isRefreshingCatalog}
       />
     );
   }
@@ -287,10 +465,20 @@ export default function HomeScreen() {
             onOpenDiscover={() => setActiveTab('Discover')}
             onOpenPlayer={openPlayer}
             onOpenSeries={openSeries}
-            onOpenContinueWatching={() => setActiveView('continue-watching')}
+            onOpenCategory={openCategory}
+            onRefresh={refreshSeriesCatalog}
+            isRefreshing={isRefreshingCatalog}
+            catalogError={catalogError}
           />
         ) : null}
-        {activeTab === 'Discover' ? <DiscoverTab series={seriesCatalog} onOpenSeries={openSeries} /> : null}
+        {activeTab === 'Discover' ? (
+          <DiscoverTab
+            series={seriesCatalog}
+            onOpenSeries={openSeries}
+            onRefresh={refreshSeriesCatalog}
+            isRefreshing={isRefreshingCatalog}
+          />
+        ) : null}
         {activeTab === 'Wallet' ? <WalletTab onOpenPayment={() => setActiveView('payment')} /> : null}
         {activeTab === 'Alerts' ? <NotificationsTab /> : null}
         {activeTab === 'Profile' ? <ProfileTab onOpenContinueWatching={() => setActiveView('continue-watching')} /> : null}
@@ -305,20 +493,34 @@ function HomeTab({
   onOpenDiscover,
   onOpenPlayer,
   onOpenSeries,
-  onOpenContinueWatching,
+  onOpenCategory,
+  onRefresh,
+  isRefreshing,
+  catalogError,
 }: {
   series: Drama[];
   onOpenDiscover: () => void;
   onOpenPlayer: (series?: Drama) => void;
   onOpenSeries: (series: Drama) => void;
-  onOpenContinueWatching: () => void;
+  onOpenCategory: (category: SeriesCategory) => void;
+  onRefresh: () => Promise<void>;
+  isRefreshing: boolean;
+  catalogError: string;
 }) {
   const hero = series[0];
-  const continueWatchingSeries = series.filter((drama) => drama.progress);
-  const freeSeries = series.filter((drama) => drama.isFree);
+  const continueWatchingSeries = getContinueWatchingSeries(series);
+  const trendingSeries = getTrendingSeries(series);
+  const newEpisodeSeries = getNewEpisodeSeries(series);
+  const freeSeries = getFreeSeries(series);
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+      }
+    >
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>Good evening</Text>
@@ -365,33 +567,60 @@ function HomeTab({
         <View style={styles.discoverySpotlight}>
           <LinearGradient colors={['#2b1d38', '#0b0b12']} style={StyleSheet.absoluteFill} />
           <View style={styles.discoverySpotlightCopy}>
-            <Text style={styles.featuredPill}>LIVE DATA</Text>
-            <Text style={styles.discoveryTitle}>No live series found</Text>
-            <Text style={styles.discoveryBody}>Publish a live series in the online admin to see it here.</Text>
+            <Text style={styles.featuredPill}>{catalogError ? 'API ERROR' : 'LIVE DATA'}</Text>
+            <Text style={styles.discoveryTitle}>
+              {catalogError ? 'Could not load local data' : 'No live series found'}
+            </Text>
+            <Text style={styles.discoveryBody}>
+              {catalogError || 'Publish a live series in the local admin to see it here.'}
+            </Text>
           </View>
         </View>
       )}
 
       <DramaRail
         title="Continue Watching"
-        data={continueWatchingSeries.length > 0 ? continueWatchingSeries : series.slice(0, 3)}
+        data={continueWatchingSeries}
         variant="progress"
-        onSeeAll={onOpenContinueWatching}
+        emptyMessage="Start watching an episode and your progress will appear here."
+        onSeeAll={() => onOpenCategory('continue')}
         onOpenSeries={onOpenSeries}
       />
-      <DramaRail title="Trending Now" data={series.slice(1, 5)} onOpenSeries={onOpenSeries} />
-      <DramaRail title="New Episodes" data={series.slice(0, 4).reverse()} onOpenSeries={onOpenSeries} />
+      <DramaRail
+        title="Trending Now"
+        data={trendingSeries.slice(0, 5)}
+        onSeeAll={() => onOpenCategory('trending')}
+        onOpenSeries={onOpenSeries}
+      />
+      <DramaRail
+        title="New Episodes"
+        data={newEpisodeSeries.slice(0, 5)}
+        onSeeAll={() => onOpenCategory('new')}
+        onOpenSeries={onOpenSeries}
+      />
       <DramaRail
         title="Free to Watch"
-        data={freeSeries.length > 0 ? freeSeries : series.slice(0, 4)}
+        data={freeSeries}
         variant="free"
+        emptyMessage="Mark an episode as free in the admin to show it here."
+        onSeeAll={() => onOpenCategory('free')}
         onOpenSeries={onOpenSeries}
       />
     </ScrollView>
   );
 }
 
-function DiscoverTab({ series, onOpenSeries }: { series: Drama[]; onOpenSeries: (series: Drama) => void }) {
+function DiscoverTab({
+  series,
+  onOpenSeries,
+  onRefresh,
+  isRefreshing,
+}: {
+  series: Drama[];
+  onOpenSeries: (series: Drama) => void;
+  onRefresh: () => Promise<void>;
+  isRefreshing: boolean;
+}) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [query, setQuery] = useState('');
 
@@ -414,7 +643,13 @@ function DiscoverTab({ series, onOpenSeries }: { series: Drama[]; onOpenSeries: 
   }, [activeFilter, query, series]);
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+      }
+    >
       <View style={styles.discoverHeader}>
         <Text style={styles.eyebrow}>Discover</Text>
         <Text style={styles.headerTitle}>Find your next obsession.</Text>
@@ -499,6 +734,92 @@ function DiscoverTab({ series, onOpenSeries }: { series: Drama[]; onOpenSeries: 
         ))}
       </View>
     </ScrollView>
+  );
+}
+
+function CategorySeriesScreen({
+  title,
+  series,
+  category,
+  onBack,
+  onOpenSeries,
+  onRefresh,
+  isRefreshing,
+}: {
+  title: string;
+  series: Drama[];
+  category: SeriesCategory;
+  onBack: () => void;
+  onOpenSeries: (series: Drama) => void;
+  onRefresh: () => Promise<void>;
+  isRefreshing: boolean;
+}) {
+  const emptyCopy = category === 'continue'
+    ? 'Start watching an episode and your progress will appear here.'
+    : category === 'free'
+      ? 'Mark an episode as free in the admin to show it here.'
+      : 'No titles found in this category yet.';
+
+  return (
+    <View style={styles.categoryScreen}>
+      <SafeAreaView>
+        <View style={styles.categoryHeader}>
+          <Pressable style={styles.iconButton} onPress={onBack} accessibilityLabel="Back">
+            <Ionicons name="chevron-back" size={22} color={Colors.text} />
+          </Pressable>
+          <View style={styles.categoryHeaderCopy}>
+            <Text style={styles.eyebrow}>{series.length} title{series.length === 1 ? '' : 's'}</Text>
+            <Text style={styles.headerTitle}>{title}</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.categoryContent}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+        }
+      >
+        {series.length > 0 ? (
+          <View style={styles.posterGrid}>
+            {series.map((drama) => (
+              <Pressable key={`category-${category}-${drama.id}`} style={styles.gridPoster} onPress={() => onOpenSeries(drama)}>
+                <PosterVisual drama={drama} />
+                {drama.isFree ? (
+                  <View style={styles.freeBadge}>
+                    <Text style={styles.freeBadgeText}>FREE</Text>
+                  </View>
+                ) : null}
+                {drama.isLocked ? (
+                  <View style={styles.lockBadge}>
+                    <Text style={styles.lockBadgeText}>5c</Text>
+                  </View>
+                ) : null}
+                <LinearGradient colors={['transparent', Colors.overlayHeavy]} style={styles.posterFade} />
+                <View style={styles.posterCopy}>
+                  <Text style={styles.posterTitle} numberOfLines={2}>
+                    {drama.title}
+                  </Text>
+                  <Text style={styles.posterMeta} numberOfLines={1}>
+                    {drama.episodeCount} eps
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.discoverySpotlight}>
+            <LinearGradient colors={['#2b1d38', '#0b0b12']} style={StyleSheet.absoluteFill} />
+            <View style={styles.discoverySpotlightCopy}>
+              <Text style={styles.featuredPill}>LIVE DATA</Text>
+              <Text style={styles.discoveryTitle}>Nothing here yet</Text>
+              <Text style={styles.discoveryBody}>{emptyCopy}</Text>
+            </View>
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1170,17 +1491,18 @@ function ContinueWatchingScreen({
   series,
   onBack,
   onResume,
+  onRefresh,
+  isRefreshing,
 }: {
   series: Drama[];
   onBack: () => void;
   onResume: (series?: Drama) => void;
+  onRefresh: () => Promise<void>;
+  isRefreshing: boolean;
 }) {
-  const continueItems = series.slice(0, 3).map((drama, index) => ({
-    drama,
-    episode: index === 0 ? 5 : index === 1 ? 11 : 8,
-    remaining: index === 0 ? '1m 28s left' : index === 1 ? '42s left' : '2m 04s left',
-    updated: index === 0 ? 'Watched 12 minutes ago' : index === 1 ? 'Watched yesterday' : 'Watched Monday',
-  }));
+  const continueItems = series
+    .filter((drama) => (drama.progressSeconds ?? 0) > 0)
+    .sort((a, b) => (b.progressSeconds ?? 0) - (a.progressSeconds ?? 0));
 
   return (
     <View style={styles.continueScreen}>
@@ -1196,26 +1518,34 @@ function ContinueWatchingScreen({
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.continueContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.continueContent}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
+        }
+      >
         <Text style={styles.continueIntro}>
           Pick up exactly where the drama left you.
         </Text>
 
-        {continueItems.length > 0 ? continueItems.map(({ drama, episode, remaining, updated }) => (
+        {continueItems.length > 0 ? continueItems.map((drama) => (
           <Pressable key={drama.id} style={styles.continueCard} onPress={() => onResume(drama)}>
             <View style={styles.continueArtwork}>
               <PosterVisual drama={drama} isHero />
               <LinearGradient colors={['transparent', Colors.overlayHeavy]} style={StyleSheet.absoluteFill} />
               <View style={styles.continueArtworkCopy}>
                 <Text style={styles.continueCardTitle}>{drama.title}</Text>
-                <Text style={styles.continueCardMeta}>Episode {episode}  /  {remaining}</Text>
+                <Text style={styles.continueCardMeta}>
+                  {formatPlaybackTime(drama.progressSeconds ?? 0)} watched
+                </Text>
               </View>
             </View>
             <View style={styles.continueCardFooter}>
               <View style={styles.continueCardFooterCopy}>
-                <Text style={styles.continueUpdated}>{updated}</Text>
+                <Text style={styles.continueUpdated}>Progress saved locally</Text>
                 <View style={styles.continueProgressTrack}>
-                  <View style={[styles.continueProgressFill, { width: `${drama.progress ?? 46}%` }]} />
+                  <View style={[styles.continueProgressFill, { width: `${drama.progress ?? 35}%` }]} />
                 </View>
               </View>
               <View style={styles.continueResumeButton}>
@@ -1247,11 +1577,15 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
   const [unlockedEpisodes, setUnlockedEpisodes] = useState<number[]>([]);
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState('');
+  const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
+  const [durationSeconds, setDurationSeconds] = useState(0);
   const episode = remoteEpisodes[Math.min(activeEpisodeIndex, remoteEpisodes.length - 1)];
   const isLocked = Boolean(episode?.isLocked && !unlockedEpisodes.includes(episode.number));
   const videoPlayer = useVideoPlayer(playbackUrl ? { uri: playbackUrl } : null, (player) => {
     player.loop = false;
+    player.timeUpdateEventInterval = 0.5;
   });
+  const progressPercent = durationSeconds > 0 ? Math.min((currentTimeSeconds / durationSeconds) * 100, 100) : 0;
 
   useEffect(() => {
     if (!playbackUrl || isLocked || isPaused) {
@@ -1263,11 +1597,29 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
   }, [isLocked, isPaused, playbackUrl, videoPlayer]);
 
   useEffect(() => {
+    setCurrentTimeSeconds(0);
+    setDurationSeconds(0);
+
+    const timeSubscription = videoPlayer.addListener('timeUpdate', ({ currentTime }) => {
+      setCurrentTimeSeconds(currentTime);
+      setDurationSeconds(videoPlayer.duration);
+    });
+    const sourceSubscription = videoPlayer.addListener('sourceLoad', ({ duration }) => {
+      setDurationSeconds(duration);
+    });
+
+    return () => {
+      timeSubscription.remove();
+      sourceSubscription.remove();
+    };
+  }, [playbackUrl, videoPlayer]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadRemoteEpisodes() {
       try {
-        const seriesId = series.databaseId;
+        const seriesId = series.seriesId;
         const episodePayload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${seriesId}/episodes`);
         if (!isMounted) {
           return;
@@ -1482,11 +1834,11 @@ function PlayerScreen({ series, onClose }: { series: Drama; onClose: () => void 
 
             <View style={styles.playerProgressArea}>
               <View style={styles.playerProgressMeta}>
-                <Text style={styles.playerProgressText}>01:18</Text>
-                <Text style={styles.playerProgressText}>02:46</Text>
+                <Text style={styles.playerProgressText}>{formatPlaybackTime(currentTimeSeconds)}</Text>
+                <Text style={styles.playerProgressText}>{formatPlaybackTime(durationSeconds)}</Text>
               </View>
               <View style={styles.playerProgressTrack}>
-                <View style={[styles.playerProgressFill, { width: `${episode.progress}%` }]} />
+                <View style={[styles.playerProgressFill, { width: `${progressPercent}%` }]} />
               </View>
             </View>
           </>
@@ -1522,41 +1874,63 @@ function SeriesDetailScreen({
   series,
   onBack,
   onStartWatching,
+  onRefreshCatalog,
+  isRefreshingCatalog,
 }: {
   series: Drama;
   onBack: () => void;
   onStartWatching: () => void;
+  onRefreshCatalog: () => Promise<void>;
+  isRefreshingCatalog: boolean;
 }) {
   const [episodes, setEpisodes] = useState<PlayerEpisode[]>([]);
+  const [isRefreshingEpisodes, setIsRefreshingEpisodes] = useState(false);
+
+  const loadEpisodes = useCallback(async () => {
+    if (!series.databaseId) {
+      return [];
+    }
+
+    const payload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${series.databaseId}/episodes`);
+
+    return payload.episodes.map((item, index) => ({
+      id: item.id,
+      seriesTitle: item.seriesTitle,
+      number: index + 1,
+      title: item.title,
+      hook: item.hook ?? '',
+      progress: item.progressSeconds > 0 ? 35 : 0,
+      isLocked: item.isLocked,
+      isFree: item.isFree,
+      coinCost: item.coinCost,
+    }));
+  }, [series.databaseId]);
+
+  const refreshSeriesDetail = useCallback(async () => {
+    setIsRefreshingEpisodes(true);
+
+    try {
+      const [nextEpisodes] = await Promise.all([loadEpisodes(), onRefreshCatalog()]);
+      setEpisodes(nextEpisodes);
+    } catch {
+      setEpisodes([]);
+    } finally {
+      setIsRefreshingEpisodes(false);
+    }
+  }, [loadEpisodes, onRefreshCatalog]);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadEpisodes() {
-      if (!series.databaseId) {
-        setEpisodes([]);
-        return;
-      }
-
+    async function loadInitialEpisodes() {
       try {
-        const payload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${series.databaseId}/episodes`);
+        const nextEpisodes = await loadEpisodes();
+
         if (!isMounted) {
           return;
         }
 
-        setEpisodes(
-          payload.episodes.map((item, index) => ({
-            id: item.id,
-            seriesTitle: item.seriesTitle,
-            number: index + 1,
-            title: item.title,
-            hook: item.hook ?? '',
-            progress: item.progressSeconds > 0 ? 35 : 0,
-            isLocked: item.isLocked,
-            isFree: item.isFree,
-            coinCost: item.coinCost,
-          })),
-        );
+        setEpisodes(nextEpisodes);
       } catch {
         if (isMounted) {
           setEpisodes([]);
@@ -1564,19 +1938,29 @@ function SeriesDetailScreen({
       }
     }
 
-    void loadEpisodes();
+    void loadInitialEpisodes();
 
     return () => {
       isMounted = false;
     };
-  }, [series.databaseId]);
+  }, [loadEpisodes]);
 
   const episodeCount = episodes.length;
   const episodeCountLabel = `${episodeCount} ${episodeCount === 1 ? 'episode' : 'episodes'}`;
 
   return (
     <View style={styles.detailScreen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.detailContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshingCatalog || isRefreshingEpisodes}
+            onRefresh={refreshSeriesDetail}
+            tintColor={Colors.primary}
+          />
+        }
+      >
         <View style={styles.detailHero}>
           <PosterVisual drama={series} isHero />
           <LinearGradient
@@ -1752,12 +2136,14 @@ function DramaRail({
   title,
   data,
   variant,
+  emptyMessage,
   onSeeAll,
   onOpenSeries,
 }: {
   title: string;
   data: Drama[];
   variant?: 'progress' | 'free';
+  emptyMessage?: string;
   onSeeAll?: () => void;
   onOpenSeries?: (series: Drama) => void;
 }) {
@@ -1774,7 +2160,11 @@ function DramaRail({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.railContent}
       >
-        {data.map((drama) => (
+        {data.length === 0 ? (
+          <View style={styles.railEmpty}>
+            <Text style={styles.railEmptyText}>{emptyMessage ?? 'No titles found.'}</Text>
+          </View>
+        ) : data.map((drama) => (
           <Pressable
             key={`${title}-${drama.id}`}
             style={styles.posterCard}
@@ -2858,6 +3248,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing[5],
     paddingTop: Spacing[5],
   },
+  categoryScreen: {
+    backgroundColor: Colors.background,
+    flex: 1,
+  },
+  categoryHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: Spacing[3],
+    paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[2],
+  },
+  categoryHeaderCopy: {
+    flex: 1,
+  },
+  categoryContent: {
+    paddingBottom: SafeArea.bottom + Spacing[6],
+    paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[5],
+  },
   continueIntro: {
     color: Colors.textMuted,
     fontSize: 14,
@@ -2942,7 +3351,7 @@ const styles = StyleSheet.create({
   },
   playerBackdrop: {
     alignItems: 'center',
-    height: '78%',
+    bottom: 0,
     justifyContent: 'center',
     left: 0,
     position: 'absolute',
@@ -3018,7 +3427,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   playerTapArea: {
-    bottom: 174,
+    bottom: 126,
     left: 0,
     position: 'absolute',
     right: 74,
@@ -3042,7 +3451,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   playerDetails: {
-    bottom: 82,
+    bottom: 64,
     left: Spacing[5],
     maxWidth: Screen.width - 116,
     position: 'absolute',
@@ -3073,7 +3482,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing[3],
   },
   playerActions: {
-    bottom: 136,
+    bottom: 112,
     gap: Spacing[4],
     position: 'absolute',
     right: Spacing[4],
@@ -3103,7 +3512,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   playerProgressArea: {
-    bottom: 40,
+    bottom: 22,
     left: Spacing[5],
     position: 'absolute',
     right: Spacing[5],
@@ -3664,6 +4073,24 @@ const styles = StyleSheet.create({
   railContent: {
     gap: Spacing[3],
     paddingHorizontal: Spacing[5],
+  },
+  railEmpty: {
+    alignItems: 'center',
+    backgroundColor: Colors.backgroundCard,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 82,
+    paddingHorizontal: Spacing[4],
+    width: Screen.width - Spacing[10],
+  },
+  railEmptyText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    textAlign: 'center',
   },
   posterCard: {
     backgroundColor: Colors.backgroundCard,

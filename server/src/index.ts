@@ -8,6 +8,7 @@ import { attachCurrentAdmin } from "./auth";
 import { adminRouter } from "./routes/admin";
 import { apiRouter } from "./routes/api";
 import { ensureUploadDirs, uploadRoot } from "./uploads";
+import { ensureContentSchema } from "./content";
 
 const app = express();
 const projectRoot = process.cwd();
@@ -31,8 +32,6 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.locals.basePath = defaultBasePath;
 app.locals.adminPath = withBasePath(defaultBasePath, "/admin");
-
-void ensureUploadDirs();
 
 app.use((req, res, next) => {
   const basePath = requestBasePath(req.originalUrl);
@@ -126,6 +125,13 @@ const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
 
 app.use(errorHandler);
 
-app.listen(config.port, () => {
-  console.log(`AfroReel admin server listening at http://localhost:${config.port}${withBasePath(config.basePath, "/admin")}`);
-});
+async function start(): Promise<void> {
+  await ensureUploadDirs();
+  await ensureContentSchema();
+
+  app.listen(config.port, () => {
+    console.log(`AfroReel admin server listening at http://localhost:${config.port}${withBasePath(config.basePath, "/admin")}`);
+  });
+}
+
+void start();

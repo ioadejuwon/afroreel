@@ -7,11 +7,14 @@
     <button class="primary-button" type="button" data-focus-target="episode-form">New Episode</button>
   </div>
 
-  <form class="panel content-form episode-composer" id="episode-form" method="post" action="<%= basePath %>/admin/episodes">
+  <form class="panel content-form episode-composer" id="episode-form" method="post" action="<%= basePath %>/admin/episodes" data-episode-create-form>
     <div class="form-intro span-2">
       <p class="eyebrow">Create</p>
       <h3>Episode details</h3>
     </div>
+    <% if (episodeFormError) { %>
+      <div class="form-error span-2"><%= episodeFormError %></div>
+    <% } %>
     <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <label>
       <span>Series</span>
@@ -53,6 +56,13 @@
       <input type="checkbox" name="isFree" />
       <span>Free episode</span>
     </label>
+    <label class="span-2 video-create-dropzone" data-video-create-dropzone>
+      <input type="file" accept="video/*" data-create-video-file required />
+      <span>Video file</span>
+      <strong data-create-video-file-name>Drop video here or choose file</strong>
+      <em>MP4 or supported video file</em>
+    </label>
+    <span class="span-2 form-status" data-create-episode-status></span>
     <button class="primary-button" type="submit">Create Episode</button>
   </form>
 
@@ -85,7 +95,7 @@
                     Missing video
                   <% } %>
                 </span>
-                <span class="status <%= episode.status === 'processing' ? 'review' : episode.status %>"><%= episode.status %></span>
+                <span class="status <%= episode.status === 'processing' ? 'review' : episode.status %>" data-status-label><%= episode.status %></span>
               </div>
             </div>
             <div class="upload-cell">
@@ -98,10 +108,10 @@
               </div>
               <span data-upload-status></span>
             </div>
-            <form class="inline-form" method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status">
+            <form class="inline-form" method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status" data-status-form data-entity-type="episode">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <input type="hidden" name="status" value="<%= episode.status === 'live' ? 'draft' : 'live' %>" />
-              <button class="ghost-button" type="submit"><%= episode.status === 'live' ? 'Draft' : 'Publish' %></button>
+              <button class="ghost-button" type="submit" data-status-button><%= episode.status === 'live' ? 'Draft' : 'Publish' %></button>
             </form>
           </article>
         <% }) %>

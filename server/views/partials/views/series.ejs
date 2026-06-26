@@ -1,36 +1,12 @@
 <section class="view" id="series" aria-label="Series management">
   <div class="section-head">
     <h2>Series Library</h2>
-    <span class="section-note">Create the show first, then add episodes from the Episodes tab.</span>
+    <span class="section-note">Create the show first, then manage its episodes from the series detail page.</span>
   </div>
-  <form class="panel content-form" method="post" action="<%= basePath %>/admin/series" data-poster-form>
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-    <input type="hidden" name="posterDataUrl" data-poster-data />
-    <label>
-      <span>Series name</span>
-      <input name="title" required placeholder="Lagos Secrets" />
-    </label>
-    <label>
-      <span>Genres / tags</span>
-      <input name="genres" placeholder="Romance, Betrayal, Lagos" />
-    </label>
-    <label class="span-2">
-      <span>Synopsis</span>
-      <textarea name="synopsis" rows="4" placeholder="A short story description for the app."></textarea>
-    </label>
-    <label>
-      <span>Poster image</span>
-      <input type="file" accept="image/png,image/jpeg,image/webp" data-poster-file />
-    </label>
-    <label>
-      <span>Status</span>
-      <select name="status">
-        <option value="draft">Draft</option>
-        <option value="live">Live</option>
-      </select>
-    </label>
-    <button class="primary-button" type="submit">Create Series</button>
-  </form>
+
+  <div class="series-actions">
+    <a class="primary-button" href="<%= basePath %>/admin/series/new">Create Series</a>
+  </div>
 
   <div class="poster-grid">
     <% if (series.length === 0) { %>
@@ -39,17 +15,20 @@
     <% series.forEach((item) => { %>
       <article class="series-card">
         <% if (item.poster_url) { %>
-          <div class="poster" style="background-image: linear-gradient(180deg, transparent 42%, rgba(0,0,0,.82)), url('<%= item.poster_url %>')"></div>
+          <div class="poster" style="background-image: url('<%= item.poster_url %>')"></div>
         <% } else { %>
           <div class="poster"></div>
         <% } %>
         <strong><%= item.title %></strong>
-        <span><%= item.episode_count %> episodes · <%= item.status %></span>
-        <form class="inline-form" method="post" action="<%= basePath %>/admin/series/<%= item.id %>/status">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-          <input type="hidden" name="status" value="<%= item.status === 'live' ? 'draft' : 'live' %>" />
-          <button class="ghost-button" type="submit"><%= item.status === 'live' ? 'Move to Draft' : 'Publish' %></button>
-        </form>
+        <span><%= item.episode_count %> episodes · <span data-status-label><%= item.status %></span></span>
+        <div class="series-card-actions">
+          <a class="ghost-button" href="<%= basePath %>/admin/series/<%= item.series_id %>">Manage Episodes</a>
+          <form class="inline-form" method="post" action="<%= basePath %>/admin/series/<%= item.id %>/status" data-status-form data-entity-type="series">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <input type="hidden" name="status" value="<%= item.status === 'live' ? 'draft' : 'live' %>" />
+            <button class="ghost-button" type="submit" data-status-button><%= item.status === 'live' ? 'Move to Draft' : 'Publish' %></button>
+          </form>
+        </div>
       </article>
     <% }) %>
   </div>

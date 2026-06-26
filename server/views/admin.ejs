@@ -17,6 +17,8 @@
 
         <%- include("partials/views/dashboard") %>
         <%- include("partials/views/series") %>
+        <%- include("partials/views/series-new") %>
+        <%- include("partials/views/series-detail") %>
         <%- include("partials/views/episodes") %>
         <%- include("partials/views/users") %>
         <%- include("partials/views/monetization") %>
@@ -27,6 +29,7 @@
 
     <script>
       window.AFROREEL_BASE_PATH = <%- JSON.stringify(basePath) %>;
+      window.AFROREEL_INITIAL_VIEW = <%- JSON.stringify(initialView || "") %>;
     </script>
     <script src="<%= basePath %>/admin/app.js"></script>
   </body>

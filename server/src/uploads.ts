@@ -1,5 +1,8 @@
 import fs from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import type { IncomingMessage } from "node:http";
 import { config } from "./config";
 
 const imageTypes: Record<string, string> = {
@@ -14,6 +17,7 @@ export function uploadRoot(): string {
 
 export async function ensureUploadDirs(): Promise<void> {
   await fs.mkdir(path.join(uploadRoot(), "posters"), { recursive: true });
+  await fs.mkdir(path.join(uploadRoot(), "videos"), { recursive: true });
 }
 
 export async function savePosterDataUrl(dataUrl: string | undefined): Promise<string | null> {
@@ -34,8 +38,8 @@ export async function savePosterDataUrl(dataUrl: string | undefined): Promise<st
   }
 
   const buffer = Buffer.from(body, "base64");
-  if (buffer.length > 2 * 1024 * 1024) {
-    throw new Error("Poster image must be 2 MB or smaller.");
+  if (buffer.length > 20 * 1024 * 1024) {
+    throw new Error("Poster image must be 20 MB or smaller.");
   }
 
   await ensureUploadDirs();
@@ -43,4 +47,20 @@ export async function savePosterDataUrl(dataUrl: string | undefined): Promise<st
   await fs.writeFile(path.join(uploadRoot(), "posters", filename), buffer);
 
   return `/uploads/posters/${filename}`;
+}
+
+export async function saveLocalVideoStream(stream: IncomingMessage, originalName: string, contentLength: number): Promise<string> {
+  if (!contentLength) {
+    throw new Error("Choose a video file and try again.");
+  }
+
+  const extension = path.extname(originalName).toLowerCase() || ".mp4";
+  const safeExtension = /^\.[a-z0-9]+$/.test(extension) ? extension : ".mp4";
+  const filename = `${Date.now()}-${Math.random().toString(16).slice(2)}${safeExtension}`;
+  const filePath = path.join(uploadRoot(), "videos", filename);
+
+  await ensureUploadDirs();
+  await pipeline(stream, createWriteStream(filePath));
+
+  return `/uploads/videos/${filename}`;
 }
