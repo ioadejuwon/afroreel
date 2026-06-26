@@ -17,6 +17,7 @@ type MobileCredentialsRow = RowDataPacket & {
   id: number;
   user_id: string;
   email: string;
+  username: string | null;
   name: string;
   password_hash: string;
   coin_balance: number;
@@ -26,6 +27,7 @@ type MobileUserRow = RowDataPacket & {
   id: number;
   user_id: string;
   email: string;
+  username: string | null;
   name: string;
   coin_balance: number;
 };
@@ -102,9 +104,14 @@ function normalizeMobileUser(row: MobileUserRow): MobileSessionUser {
     id: row.id,
     userId: row.user_id,
     email: row.email,
+    username: row.username,
     name: row.name,
     coinBalance: Number(row.coin_balance ?? 0),
   };
+}
+
+function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase();
 }
 
 function displayNameFromEmail(email: string): string {
@@ -129,6 +136,7 @@ export async function ensureMobileAuthSchema(): Promise<void> {
       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       user_id VARCHAR(80) NOT NULL UNIQUE,
       name VARCHAR(120) NOT NULL,
+      username VARCHAR(80) NULL UNIQUE,
       email VARCHAR(190) NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
       coin_balance INT UNSIGNED NOT NULL DEFAULT 250,
@@ -139,6 +147,14 @@ export async function ensureMobileAuthSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  try {
+    await pool.execute("ALTER TABLE mobile_users ADD COLUMN username VARCHAR(80) NULL UNIQUE AFTER name");
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+    if (code !== "ER_DUP_FIELDNAME") {
+      throw error;
+    }
+  }
 }
 
 export async function findCurrentAdmin(adminId: number): Promise<AdminSessionUser | null> {
@@ -176,7 +192,7 @@ export async function attemptAdminLogin(email: string, password: string): Promis
 
 export async function findCurrentMobileUser(userId: string): Promise<MobileSessionUser | null> {
   const [rows] = await pool.execute<MobileUserRow[]>(
-    "SELECT id, user_id, name, email, coin_balance FROM mobile_users WHERE user_id = ? AND is_active = 1 LIMIT 1",
+    "SELECT id, user_id, name, username, email, coin_balance FROM mobile_users WHERE user_id = ? AND is_active = 1 LIMIT 1",
     [userId],
   );
   const user = rows[0];
@@ -184,14 +200,22 @@ export async function findCurrentMobileUser(userId: string): Promise<MobileSessi
   return user ? normalizeMobileUser(user) : null;
 }
 
-export async function createMobileUser(email: string, password: string): Promise<{ token: string; user: MobileSessionUser }> {
+export async function createMobileUser(input: {
+  email: string;
+  password: string;
+  name: string;
+  username: string;
+}): Promise<{ token: string; user: MobileSessionUser }> {
+  const { email, password, name, username } = input;
   const normalizedEmail = email.trim().toLowerCase();
+  const normalizedUsername = normalizeUsername(username);
   const passwordHash = await bcrypt.hash(password, 12);
   const userId = await uniqueMobileUserId();
+  const displayName = name.trim() || displayNameFromEmail(normalizedEmail);
 
   await pool.execute(
-    "INSERT INTO mobile_users (user_id, name, email, password_hash) VALUES (?, ?, ?, ?)",
-    [userId, displayNameFromEmail(normalizedEmail), normalizedEmail, passwordHash],
+    "INSERT INTO mobile_users (user_id, name, username, email, password_hash) VALUES (?, ?, ?, ?, ?)",
+    [userId, displayName, normalizedUsername, normalizedEmail, passwordHash],
   );
 
   const user = await findCurrentMobileUser(userId);
@@ -205,11 +229,14 @@ export async function createMobileUser(email: string, password: string): Promise
   };
 }
 
-export async function attemptMobileLogin(email: string, password: string): Promise<{ token: string; user: MobileSessionUser } | null> {
-  const normalizedEmail = email.trim().toLowerCase();
+export async function attemptMobileLogin(identifier: string, password: string): Promise<{ token: string; user: MobileSessionUser } | null> {
+  const normalizedIdentifier = identifier.trim().toLowerCase();
   const [rows] = await pool.execute<MobileCredentialsRow[]>(
-    "SELECT id, user_id, name, email, password_hash, coin_balance FROM mobile_users WHERE email = ? AND is_active = 1 LIMIT 1",
-    [normalizedEmail],
+    `SELECT id, user_id, name, username, email, password_hash, coin_balance
+       FROM mobile_users
+      WHERE (email = ? OR username = ?) AND is_active = 1
+      LIMIT 1`,
+    [normalizedIdentifier, normalizedIdentifier],
   );
   const credentials = rows[0];
 
@@ -229,6 +256,55 @@ export async function attemptMobileLogin(email: string, password: string): Promi
     token: createMobileToken(credentials.user_id),
     user: normalizeMobileUser(credentials),
   };
+}
+
+export async function updateMobileUserProfile(
+  userId: string,
+  input: { name: string; email: string; username: string },
+): Promise<MobileSessionUser> {
+  const name = input.name.trim();
+  const email = input.email.trim().toLowerCase();
+  const username = normalizeUsername(input.username);
+
+  await pool.execute(
+    "UPDATE mobile_users SET name = ?, email = ?, username = ? WHERE user_id = ? AND is_active = 1",
+    [name, email, username, userId],
+  );
+
+  const user = await findCurrentMobileUser(userId);
+  if (!user) {
+    throw new Error("Could not update account.");
+  }
+
+  return user;
+}
+
+export async function changeMobilePassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<boolean> {
+  const [rows] = await pool.execute<MobileCredentialsRow[]>(
+    `SELECT id, user_id, name, username, email, password_hash, coin_balance
+       FROM mobile_users
+      WHERE user_id = ? AND is_active = 1
+      LIMIT 1`,
+    [userId],
+  );
+  const credentials = rows[0];
+  if (!credentials) {
+    return false;
+  }
+
+  const passwordMatches = await bcrypt.compare(currentPassword, normalizeBcryptHash(credentials.password_hash));
+  if (!passwordMatches) {
+    return false;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await pool.execute("UPDATE mobile_users SET password_hash = ? WHERE user_id = ?", [passwordHash, userId]);
+
+  return true;
 }
 
 export async function attachCurrentAdmin(req: Request, _res: Response, next: NextFunction): Promise<void> {

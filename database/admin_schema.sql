@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS mobile_users (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id VARCHAR(80) NOT NULL UNIQUE,
   name VARCHAR(120) NOT NULL,
+  username VARCHAR(80) NULL UNIQUE,
   email VARCHAR(190) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   coin_balance INT UNSIGNED NOT NULL DEFAULT 250,
@@ -67,12 +68,12 @@ CREATE TABLE IF NOT EXISTS episodes (
 CREATE TABLE IF NOT EXISTS episode_unlocks (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id VARCHAR(80) NOT NULL,
-  episode_id INT UNSIGNED NOT NULL,
+  episode_id VARCHAR(32) NOT NULL,
   method ENUM('coins', 'ad', 'free') NOT NULL DEFAULT 'coins',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY unique_user_episode_unlock (user_id, episode_id),
   CONSTRAINT fk_unlocks_episode
-    FOREIGN KEY (episode_id) REFERENCES episodes(id)
+    FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -82,48 +83,48 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   transaction_type ENUM('top_up', 'spend', 'reward') NOT NULL,
   coin_amount INT NOT NULL,
   description VARCHAR(255) NOT NULL,
-  episode_id INT UNSIGNED NULL,
+  episode_id VARCHAR(32) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_wallet_transactions_user_created (user_id, created_at),
   CONSTRAINT fk_wallet_transactions_episode
-    FOREIGN KEY (episode_id) REFERENCES episodes(id)
+    FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS watch_progress (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id VARCHAR(80) NOT NULL,
-  episode_id INT UNSIGNED NOT NULL,
+  episode_id VARCHAR(32) NOT NULL,
   progress_seconds INT UNSIGNED NOT NULL DEFAULT 0,
   watched_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY unique_user_episode_progress (user_id, episode_id),
   CONSTRAINT fk_progress_episode
-    FOREIGN KEY (episode_id) REFERENCES episodes(id)
+    FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS episode_reactions (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id VARCHAR(80) NOT NULL,
-  episode_id INT UNSIGNED NOT NULL,
+  episode_id VARCHAR(32) NOT NULL,
   reaction_type ENUM('like', 'save') NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY unique_user_episode_reaction (user_id, episode_id, reaction_type),
   INDEX idx_episode_reactions_episode_type (episode_id, reaction_type),
   CONSTRAINT fk_episode_reactions_episode
-    FOREIGN KEY (episode_id) REFERENCES episodes(id)
+    FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS episode_comments (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id VARCHAR(80) NOT NULL,
-  episode_id INT UNSIGNED NOT NULL,
+  episode_id VARCHAR(32) NOT NULL,
   body VARCHAR(500) NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_episode_comments_episode_created (episode_id, created_at),
   CONSTRAINT fk_episode_comments_episode
-    FOREIGN KEY (episode_id) REFERENCES episodes(id)
+    FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

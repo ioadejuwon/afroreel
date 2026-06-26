@@ -31,6 +31,7 @@ type EpisodeIdentityRow = RowDataPacket & {
 };
 
 type UnlockEpisodeRow = RowDataPacket & {
+  episode_id: string;
   coin_cost: number;
   episode_number: number;
   title: string;
@@ -329,6 +330,74 @@ async function uniqueEpisodeId(): Promise<string> {
   }
 }
 
+async function executeIgnoringMysqlCodes(sql: string, ignoredCodes: string[]): Promise<void> {
+  try {
+    await pool.execute(sql);
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+    if (!ignoredCodes.includes(code)) {
+      throw error;
+    }
+  }
+}
+
+async function getColumnDataType(tableName: string, columnName: string): Promise<string | null> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT DATA_TYPE AS data_type
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+      LIMIT 1`,
+    [tableName, columnName],
+  );
+
+  return rows[0]?.data_type ? String(rows[0].data_type).toLowerCase() : null;
+}
+
+async function migrateEpisodeReferenceColumn(input: {
+  tableName: string;
+  nullable: boolean;
+  foreignKeyName: string;
+  indexesToDrop: string[];
+  indexesToCreate: string[];
+}): Promise<void> {
+  const dataType = await getColumnDataType(input.tableName, "episode_id");
+  if (!dataType || dataType === "varchar") {
+    return;
+  }
+
+  await executeIgnoringMysqlCodes(
+    `ALTER TABLE ${input.tableName} ADD COLUMN episode_public_id VARCHAR(32) NULL AFTER episode_id`,
+    ["ER_DUP_FIELDNAME"],
+  );
+  await pool.execute(
+    `UPDATE ${input.tableName} item
+       LEFT JOIN episodes e ON e.id = item.episode_id
+        SET item.episode_public_id = e.episode_id
+      WHERE item.episode_id IS NOT NULL`,
+  );
+  await executeIgnoringMysqlCodes(
+    `ALTER TABLE ${input.tableName} DROP FOREIGN KEY ${input.foreignKeyName}`,
+    ["ER_CANT_DROP_FIELD_OR_KEY", "ER_FK_CANNOT_DROP_PARENT"],
+  );
+  for (const indexName of input.indexesToDrop) {
+    await executeIgnoringMysqlCodes(`ALTER TABLE ${input.tableName} DROP INDEX ${indexName}`, ["ER_CANT_DROP_FIELD_OR_KEY"]);
+  }
+  await pool.execute(`ALTER TABLE ${input.tableName} DROP COLUMN episode_id`);
+  await pool.execute(
+    `ALTER TABLE ${input.tableName} CHANGE episode_public_id episode_id VARCHAR(32) ${input.nullable ? "NULL" : "NOT NULL"}`,
+  );
+  for (const createIndexSql of input.indexesToCreate) {
+    await executeIgnoringMysqlCodes(createIndexSql, ["ER_DUP_KEYNAME"]);
+  }
+  await executeIgnoringMysqlCodes(
+    `ALTER TABLE ${input.tableName}
+       ADD CONSTRAINT ${input.foreignKeyName}
+       FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
+       ON DELETE ${input.nullable ? "SET NULL" : "CASCADE"}`,
+    ["ER_FK_DUP_NAME"],
+  );
+}
+
 export async function ensureContentSchema(): Promise<void> {
   try {
     await pool.execute("ALTER TABLE series ADD COLUMN series_id VARCHAR(32) NULL UNIQUE AFTER id");
@@ -368,18 +437,46 @@ export async function ensureContentSchema(): Promise<void> {
   }
 
   await pool.execute(`
+    CREATE TABLE IF NOT EXISTS episode_unlocks (
+      id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(80) NOT NULL,
+      episode_id VARCHAR(32) NOT NULL,
+      method ENUM('coins', 'ad', 'free') NOT NULL DEFAULT 'coins',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY unique_user_episode_unlock (user_id, episode_id),
+      CONSTRAINT fk_unlocks_episode
+        FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
+        ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS wallet_transactions (
       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       user_id VARCHAR(80) NOT NULL,
       transaction_type ENUM('top_up', 'spend', 'reward') NOT NULL,
       coin_amount INT NOT NULL,
       description VARCHAR(255) NOT NULL,
-      episode_id INT UNSIGNED NULL,
+      episode_id VARCHAR(32) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_wallet_transactions_user_created (user_id, created_at),
       CONSTRAINT fk_wallet_transactions_episode
-        FOREIGN KEY (episode_id) REFERENCES episodes(id)
+        FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
         ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS watch_progress (
+      id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(80) NOT NULL,
+      episode_id VARCHAR(32) NOT NULL,
+      progress_seconds INT UNSIGNED NOT NULL DEFAULT 0,
+      watched_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY unique_user_episode_progress (user_id, episode_id),
+      CONSTRAINT fk_progress_episode
+        FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
+        ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
@@ -387,13 +484,13 @@ export async function ensureContentSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS episode_reactions (
       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       user_id VARCHAR(80) NOT NULL,
-      episode_id INT UNSIGNED NOT NULL,
+      episode_id VARCHAR(32) NOT NULL,
       reaction_type ENUM('like', 'save') NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY unique_user_episode_reaction (user_id, episode_id, reaction_type),
       INDEX idx_episode_reactions_episode_type (episode_id, reaction_type),
       CONSTRAINT fk_episode_reactions_episode
-        FOREIGN KEY (episode_id) REFERENCES episodes(id)
+        FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
         ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
@@ -402,15 +499,60 @@ export async function ensureContentSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS episode_comments (
       id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       user_id VARCHAR(80) NOT NULL,
-      episode_id INT UNSIGNED NOT NULL,
+      episode_id VARCHAR(32) NOT NULL,
       body VARCHAR(500) NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_episode_comments_episode_created (episode_id, created_at),
       CONSTRAINT fk_episode_comments_episode
-        FOREIGN KEY (episode_id) REFERENCES episodes(id)
+        FOREIGN KEY (episode_id) REFERENCES episodes(episode_id)
         ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await migrateEpisodeReferenceColumn({
+    tableName: "episode_unlocks",
+    nullable: false,
+    foreignKeyName: "fk_unlocks_episode",
+    indexesToDrop: ["unique_user_episode_unlock"],
+    indexesToCreate: [
+      "ALTER TABLE episode_unlocks ADD UNIQUE KEY unique_user_episode_unlock (user_id, episode_id)",
+    ],
+  });
+  await migrateEpisodeReferenceColumn({
+    tableName: "wallet_transactions",
+    nullable: true,
+    foreignKeyName: "fk_wallet_transactions_episode",
+    indexesToDrop: [],
+    indexesToCreate: [],
+  });
+  await migrateEpisodeReferenceColumn({
+    tableName: "watch_progress",
+    nullable: false,
+    foreignKeyName: "fk_progress_episode",
+    indexesToDrop: ["unique_user_episode_progress"],
+    indexesToCreate: [
+      "ALTER TABLE watch_progress ADD UNIQUE KEY unique_user_episode_progress (user_id, episode_id)",
+    ],
+  });
+  await migrateEpisodeReferenceColumn({
+    tableName: "episode_reactions",
+    nullable: false,
+    foreignKeyName: "fk_episode_reactions_episode",
+    indexesToDrop: ["unique_user_episode_reaction", "idx_episode_reactions_episode_type"],
+    indexesToCreate: [
+      "ALTER TABLE episode_reactions ADD UNIQUE KEY unique_user_episode_reaction (user_id, episode_id, reaction_type)",
+      "ALTER TABLE episode_reactions ADD INDEX idx_episode_reactions_episode_type (episode_id, reaction_type)",
+    ],
+  });
+  await migrateEpisodeReferenceColumn({
+    tableName: "episode_comments",
+    nullable: false,
+    foreignKeyName: "fk_episode_comments_episode",
+    indexesToDrop: ["idx_episode_comments_episode_created"],
+    indexesToCreate: [
+      "ALTER TABLE episode_comments ADD INDEX idx_episode_comments_episode_created (episode_id, created_at)",
+    ],
+  });
 }
 
 function numberValue(value: number | string | null | undefined): number {
@@ -600,7 +742,7 @@ export async function getUsersData(): Promise<UsersData> {
         (
           SELECT s.title
             FROM watch_progress p
-            INNER JOIN episodes e ON e.id = p.episode_id
+            INNER JOIN episodes e ON e.episode_id = p.episode_id
             INNER JOIN series s ON s.id = e.series_id
            WHERE p.user_id = u.user_id
            ORDER BY p.watched_at DESC
@@ -670,7 +812,7 @@ export async function listSeries(includeDrafts = true, userId?: string): Promise
     ? "LEFT JOIN episodes e ON e.series_id = s.id"
     : "LEFT JOIN episodes e ON e.series_id = s.id AND e.status = 'live'";
   const progressJoin = userId
-    ? "LEFT JOIN watch_progress p ON p.episode_id = e.id AND p.user_id = ?"
+    ? "LEFT JOIN watch_progress p ON p.episode_id = e.episode_id AND p.user_id = ?"
     : "";
   const params = userId ? [userId] : [];
   const [rows] = await pool.execute<SeriesRow[]>(
@@ -714,10 +856,10 @@ export async function createSeries(input: {
 export async function listEpisodes(includeDrafts = true, userId?: string): Promise<EpisodeRow[]> {
   const where = includeDrafts ? "" : "WHERE s.status = 'live' AND e.status = 'live'";
   const unlockJoin = userId
-    ? "LEFT JOIN episode_unlocks u ON u.episode_id = e.id AND u.user_id = ?"
+    ? "LEFT JOIN episode_unlocks u ON u.episode_id = e.episode_id AND u.user_id = ?"
     : "";
   const progressJoin = userId
-    ? "LEFT JOIN watch_progress p ON p.episode_id = e.id AND p.user_id = ?"
+    ? "LEFT JOIN watch_progress p ON p.episode_id = e.episode_id AND p.user_id = ?"
     : "";
   const params = userId ? [userId, userId] : [];
   const [rows] = await pool.execute<EpisodeRow[]>(
@@ -741,10 +883,10 @@ export async function listEpisodesForSeries(seriesIdentifier: string | number, i
     ? "WHERE (s.series_id = ? OR e.series_id = ?)"
     : "WHERE (s.series_id = ? OR e.series_id = ?) AND s.status = 'live' AND e.status = 'live'";
   const unlockJoin = userId
-    ? "LEFT JOIN episode_unlocks u ON u.episode_id = e.id AND u.user_id = ?"
+    ? "LEFT JOIN episode_unlocks u ON u.episode_id = e.episode_id AND u.user_id = ?"
     : "";
   const progressJoin = userId
-    ? "LEFT JOIN watch_progress p ON p.episode_id = e.id AND p.user_id = ?"
+    ? "LEFT JOIN watch_progress p ON p.episode_id = e.episode_id AND p.user_id = ?"
     : "";
   const numericSeriesId = Number.parseInt(String(seriesIdentifier), 10);
   const fallbackSeriesId = Number.isNaN(numericSeriesId) ? 0 : numericSeriesId;
@@ -807,6 +949,17 @@ export async function getEpisodeDatabaseId(episodeIdentifier: string | number): 
   return rows[0]?.id ?? null;
 }
 
+export async function getEpisodePublicId(episodeIdentifier: string | number): Promise<string | null> {
+  const numericEpisodeId = Number.parseInt(String(episodeIdentifier), 10);
+  const fallbackEpisodeId = Number.isNaN(numericEpisodeId) ? 0 : numericEpisodeId;
+  const [rows] = await pool.execute<EpisodeIdentityRow[]>(
+    "SELECT id, episode_id FROM episodes WHERE episode_id = ? OR id = ? LIMIT 1",
+    [String(episodeIdentifier), fallbackEpisodeId],
+  );
+
+  return rows[0]?.episode_id ?? null;
+}
+
 export async function attachCloudflareVideo(episodeId: number, uid: string): Promise<void> {
   await pool.execute(
     `UPDATE episodes
@@ -852,39 +1005,43 @@ export async function markEpisodeReady(episodeId: number, input: {
   );
 }
 
-export async function getEpisodeForPlayback(episodeId: number, userId: string): Promise<EpisodeRow | null> {
+export async function getEpisodeForPlayback(episodeIdentifier: string | number, userId: string): Promise<EpisodeRow | null> {
+  const numericEpisodeId = Number.parseInt(String(episodeIdentifier), 10);
+  const fallbackEpisodeId = Number.isNaN(numericEpisodeId) ? 0 : numericEpisodeId;
   const [rows] = await pool.execute<EpisodeRow[]>(
     `SELECT e.*, s.title AS series_title, IF(u.id IS NULL, 0, 1) AS is_unlocked, p.progress_seconds
        FROM episodes e
        INNER JOIN series s ON s.id = e.series_id
-       LEFT JOIN episode_unlocks u ON u.episode_id = e.id AND u.user_id = ?
-       LEFT JOIN watch_progress p ON p.episode_id = e.id AND p.user_id = ?
-      WHERE e.id = ? AND e.status = 'live' AND s.status = 'live'
+       LEFT JOIN episode_unlocks u ON u.episode_id = e.episode_id AND u.user_id = ?
+       LEFT JOIN watch_progress p ON p.episode_id = e.episode_id AND p.user_id = ?
+      WHERE (e.episode_id = ? OR e.id = ?) AND e.status = 'live' AND s.status = 'live'
       LIMIT 1`,
-    [userId, userId, episodeId],
+    [userId, userId, String(episodeIdentifier), fallbackEpisodeId],
   );
 
   return rows[0] ?? null;
 }
 
 export async function unlockEpisode(
-  episodeId: number,
+  episodeIdentifier: string | number,
   userId: string,
   method: "coins" | "ad" | "free",
 ): Promise<UnlockEpisodeResult> {
+  const numericEpisodeId = Number.parseInt(String(episodeIdentifier), 10);
+  const fallbackEpisodeId = Number.isNaN(numericEpisodeId) ? 0 : numericEpisodeId;
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
     const [episodeRows] = await connection.execute<UnlockEpisodeRow[]>(
-      `SELECT e.coin_cost, e.episode_number, e.title, s.title AS series_title
+      `SELECT e.episode_id, e.coin_cost, e.episode_number, e.title, s.title AS series_title
          FROM episodes e
          INNER JOIN series s ON s.id = e.series_id
-        WHERE e.id = ?
+        WHERE e.episode_id = ? OR e.id = ?
         LIMIT 1
         FOR UPDATE`,
-      [episodeId],
+      [String(episodeIdentifier), fallbackEpisodeId],
     );
     const episode = episodeRows[0];
     if (!episode) {
@@ -906,7 +1063,7 @@ export async function unlockEpisode(
 
     const [existingRows] = await connection.execute<UnlockExistingRow[]>(
       "SELECT id FROM episode_unlocks WHERE user_id = ? AND episode_id = ? LIMIT 1",
-      [userId, episodeId],
+      [userId, episode.episode_id],
     );
     const alreadyUnlocked = existingRows.length > 0;
     const coinCost = Number(episode.coin_cost ?? 0);
@@ -929,7 +1086,7 @@ export async function unlockEpisode(
           userId,
           -coinsDeducted,
           `Unlocked ${episode.series_title} Episode ${episode.episode_number}: ${episode.title}`,
-          episodeId,
+          episode.episode_id,
         ],
       );
     }
@@ -938,7 +1095,7 @@ export async function unlockEpisode(
       `INSERT INTO episode_unlocks (user_id, episode_id, method)
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE method = method`,
-      [userId, episodeId, method],
+      [userId, episode.episode_id, method],
     );
 
     await connection.commit();
@@ -1011,7 +1168,7 @@ export async function listWalletTransactions(userId: string): Promise<WalletTran
         e.episode_number,
         t.created_at
        FROM wallet_transactions t
-       LEFT JOIN episodes e ON e.id = t.episode_id
+       LEFT JOIN episodes e ON e.episode_id = t.episode_id
        LEFT JOIN series s ON s.id = e.series_id
       WHERE t.user_id = ?
       ORDER BY t.created_at DESC, t.id DESC
@@ -1090,7 +1247,7 @@ export async function listWatchHistory(userId: string): Promise<ProfileEpisode[]
            WHERE latest_e.series_id = s.id AND latest_e.status = 'live'
         ) AS latest_episode_at
        FROM watch_progress p
-       INNER JOIN episodes e ON e.id = p.episode_id
+       INNER JOIN episodes e ON e.episode_id = p.episode_id
        INNER JOIN series s ON s.id = e.series_id
       WHERE p.user_id = ? AND e.status = 'live' AND s.status = 'live'
       ORDER BY p.watched_at DESC, p.id DESC
@@ -1135,9 +1292,9 @@ export async function listLikedEpisodes(userId: string): Promise<ProfileEpisode[
            WHERE latest_e.series_id = s.id AND latest_e.status = 'live'
         ) AS latest_episode_at
        FROM episode_reactions r
-       INNER JOIN episodes e ON e.id = r.episode_id
+       INNER JOIN episodes e ON e.episode_id = r.episode_id
        INNER JOIN series s ON s.id = e.series_id
-       LEFT JOIN watch_progress p ON p.episode_id = e.id AND p.user_id = r.user_id
+       LEFT JOIN watch_progress p ON p.episode_id = e.episode_id AND p.user_id = r.user_id
       WHERE r.user_id = ? AND r.reaction_type = 'like' AND e.status = 'live' AND s.status = 'live'
       ORDER BY r.created_at DESC, r.id DESC
       LIMIT 50`,
@@ -1147,7 +1304,7 @@ export async function listLikedEpisodes(userId: string): Promise<ProfileEpisode[
   return rows.map(mapProfileEpisode);
 }
 
-export async function saveProgress(episodeId: number, userId: string, progressSeconds: number): Promise<void> {
+export async function saveProgress(episodeId: string, userId: string, progressSeconds: number): Promise<void> {
   await pool.execute(
     `INSERT INTO watch_progress (user_id, episode_id, progress_seconds)
      VALUES (?, ?, ?)
@@ -1156,7 +1313,7 @@ export async function saveProgress(episodeId: number, userId: string, progressSe
   );
 }
 
-export async function getEpisodeEngagement(episodeId: number, userId: string): Promise<EpisodeEngagement> {
+export async function getEpisodeEngagement(episodeId: string, userId: string): Promise<EpisodeEngagement> {
   const [rows] = await pool.execute<EpisodeEngagementRow[]>(
     `SELECT
         (SELECT COUNT(*) FROM episode_reactions WHERE episode_id = ? AND reaction_type = 'like') AS like_count,
@@ -1178,7 +1335,7 @@ export async function getEpisodeEngagement(episodeId: number, userId: string): P
 }
 
 export async function setEpisodeReaction(
-  episodeId: number,
+  episodeId: string,
   userId: string,
   reactionType: EpisodeReactionType,
   isActive: boolean,
@@ -1200,7 +1357,7 @@ export async function setEpisodeReaction(
   return getEpisodeEngagement(episodeId, userId);
 }
 
-export async function listEpisodeComments(episodeId: number): Promise<EpisodeComment[]> {
+export async function listEpisodeComments(episodeId: string): Promise<EpisodeComment[]> {
   const [rows] = await pool.execute<EpisodeCommentRow[]>(
     `SELECT c.id, c.user_id, c.body, c.created_at, u.name AS author_name
        FROM episode_comments c
@@ -1220,7 +1377,7 @@ export async function listEpisodeComments(episodeId: number): Promise<EpisodeCom
   }));
 }
 
-export async function addEpisodeComment(episodeId: number, userId: string, body: string): Promise<EpisodeComment> {
+export async function addEpisodeComment(episodeId: string, userId: string, body: string): Promise<EpisodeComment> {
   const cleanBody = body.trim().replace(/\s+/g, " ").slice(0, 500);
   if (!cleanBody) {
     throw new Error("Comment cannot be empty.");

@@ -10,6 +10,7 @@ export interface MobileSessionUser {
   id: number;
   userId: string;
   email: string;
+  username: string | null;
   name: string;
   coinBalance: number;
 }

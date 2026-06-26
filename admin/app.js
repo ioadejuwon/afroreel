@@ -224,14 +224,16 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
     }
 
     button.disabled = true;
-    setStatus(status, "Uploading locally...");
+    setStatus(status, "Preparing video upload...");
 
     try {
-      const upload = await uploadLocalVideo(episodeId, file);
+      const upload = await uploadEpisodeVideo(episodeId, file, (progress) => {
+        setStatus(status, `Uploading video... ${progress}%`);
+      });
       item.dataset.videoUid = upload.uid;
-      setStatus(status, "Uploaded locally.");
+      setStatus(status, upload.ready ? "Video attached." : "Uploaded. Cloudflare is processing.");
       if (videoState) {
-        videoState.textContent = "Ready";
+        videoState.textContent = upload.ready ? "Ready" : "Processing";
       }
       if (attachedVideo) {
         attachedVideo.textContent = `Video: ${file.name}`;
@@ -297,9 +299,11 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
         throw new Error(payload.error || response.statusText || "Episode creation failed.");
       }
 
-      setStatus(status, "Uploading video...");
-      await uploadLocalVideo(payload.episodeId, file);
-      setStatus(status, "Video attached.");
+      setStatus(status, "Preparing video upload...");
+      const upload = await uploadEpisodeVideo(payload.episodeId, file, (progress) => {
+        setStatus(status, `Uploading video... ${progress}%`);
+      });
+      setStatus(status, upload.ready ? "Video attached." : "Uploaded. Cloudflare is processing.");
       window.location.assign(payload.redirectTo || viewPath("episodes"));
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Episode creation failed.");
@@ -470,6 +474,70 @@ async function uploadLocalVideo(episodeId, file) {
   }
 
   return payload;
+}
+
+async function uploadEpisodeVideo(episodeId, file, onProgress) {
+  try {
+    const upload = await createTusUpload(episodeId, file);
+    await uploadFileWithTus(upload.uploadUrl, file, onProgress);
+    onProgress(100);
+
+    return {
+      uid: upload.uid,
+      ready: false,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!message.includes("Cloudflare Stream credentials are not configured")) {
+      throw error;
+    }
+
+    const upload = await uploadLocalVideoWithProgress(episodeId, file, onProgress);
+    return {
+      uid: upload.uid,
+      ready: Boolean(upload.ready),
+    };
+  }
+}
+
+function uploadLocalVideoWithProgress(episodeId, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", appUrl(`/admin/api/episodes/${episodeId}/local-video`));
+    request.timeout = 30 * 60 * 1000;
+    request.setRequestHeader("content-type", file.type || "application/octet-stream");
+    request.setRequestHeader("csrf-token", csrfToken);
+    request.setRequestHeader("x-file-name", file.name);
+
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+      }
+    });
+
+    request.addEventListener("load", () => {
+      const payload = parseJsonResponse(request.responseText);
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(payload.error || request.statusText || "Upload failed."));
+        return;
+      }
+
+      onProgress(100);
+      resolve(payload);
+    });
+
+    request.addEventListener("error", () => reject(new Error("Video upload failed. Check the connection and try again.")));
+    request.addEventListener("timeout", () => reject(new Error("Video upload timed out. Try a smaller file or use Cloudflare Stream.")));
+    request.send(file);
+  });
+}
+
+function parseJsonResponse(value) {
+  try {
+    return JSON.parse(value || "{}");
+  } catch {
+    return {};
+  }
 }
 
 function appUrl(path) {

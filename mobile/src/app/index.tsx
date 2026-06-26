@@ -63,12 +63,13 @@ type PlayerEpisode = {
   coinCost?: number;
 };
 type UnlockMethod = 'coins' | 'ad';
-type AppView = 'tabs' | 'series-detail' | 'continue-watching' | 'profile-history' | 'profile-likes' | 'category-list' | 'payment';
+type AppView = 'tabs' | 'series-detail' | 'continue-watching' | 'profile-history' | 'profile-likes' | 'profile-settings' | 'category-list' | 'payment';
 type EntryStep = 'splash' | 'onboarding' | 'auth' | 'app';
 type SeriesCategory = 'continue' | 'trending' | 'new' | 'free';
 type AuthUser = {
   id: string;
   email: string;
+  username: string | null;
   name: string;
   coinBalance: number;
 };
@@ -541,10 +542,6 @@ export default function HomeScreen() {
     setActiveView('category-list');
   }, []);
 
-  const showProfilePlaceholder = useCallback((title: string) => {
-    Alert.alert(title, 'This profile tool is coming soon.');
-  }, []);
-
   const signOut = useCallback(async () => {
     await SecureStore.deleteItemAsync(AUTH_TOKEN_STORAGE_KEY);
     setApiAuthToken(null);
@@ -644,6 +641,16 @@ export default function HomeScreen() {
     );
   }
 
+  if (activeView === 'profile-settings') {
+    return (
+      <ProfileSettingsScreen
+        user={currentUser}
+        onBack={() => setActiveView('tabs')}
+        onUserChange={setCurrentUser}
+      />
+    );
+  }
+
   if (activeView === 'category-list') {
     return (
       <CategorySeriesScreen
@@ -711,10 +718,9 @@ export default function HomeScreen() {
             onOpenWatchHistory={() => setActiveView('profile-history')}
             onOpenLikes={() => setActiveView('profile-likes')}
             onOpenWallet={() => setActiveTab('Wallet')}
-            onOpenAlerts={() => setActiveTab('Alerts')}
-            onEditProfile={() => showProfilePlaceholder('Edit profile')}
-            onOpenSettings={() => showProfilePlaceholder('Settings')}
-            onOpenHelp={() => showProfilePlaceholder('Help and support')}
+            onEditProfile={() => setActiveView('profile-settings')}
+            onOpenSettings={() => setActiveView('profile-settings')}
+            onOpenHelp={() => Alert.alert('Help and support', 'Support tools are coming soon.')}
             onSignOut={signOut}
           />
         ) : null}
@@ -1176,6 +1182,8 @@ function AuthScreen({
   onUserLoaded: (user: AuthUser) => void;
 }) {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
@@ -1187,9 +1195,21 @@ function AuthScreen({
     }
 
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedUsername = username.trim().toLowerCase();
+    const normalizedIdentifier = normalizedEmail;
+
+    if (isCreatingAccount && !name.trim()) {
+      setAuthError('Enter your name.');
+      return;
+    }
+
+    if (isCreatingAccount && !/^[a-z0-9_]{3,24}$/.test(normalizedUsername)) {
+      setAuthError('Choose a username with 3 to 24 letters, numbers, or underscores.');
+      return;
+    }
 
     if (!normalizedEmail) {
-      setAuthError('Enter your email address.');
+      setAuthError(isCreatingAccount ? 'Enter your email address.' : 'Enter your email or username.');
       return;
     }
 
@@ -1211,7 +1231,11 @@ function AuthScreen({
         isCreatingAccount ? '/api/auth/signup' : '/api/auth/signin',
         {
           method: 'POST',
-          body: JSON.stringify({ email: normalizedEmail, password }),
+          body: JSON.stringify(
+            isCreatingAccount
+              ? { name: name.trim(), username: normalizedUsername, email: normalizedEmail, password }
+              : { identifier: normalizedIdentifier, password },
+          ),
         },
       );
 
@@ -1224,7 +1248,7 @@ function AuthScreen({
     } finally {
       setIsSubmitting(false);
     }
-  }, [email, isCreatingAccount, isSubmitting, onComplete, onUserLoaded, password]);
+  }, [email, isCreatingAccount, isSubmitting, name, onComplete, onUserLoaded, password, username]);
 
   return (
     <View style={styles.authScreen}>
@@ -1259,13 +1283,41 @@ function AuthScreen({
                 : 'Sign in to keep watching where you left off.'}
             </Text>
 
-            <Text style={styles.authFieldLabel}>EMAIL ADDRESS</Text>
+            {isCreatingAccount ? (
+              <>
+                <Text style={styles.authFieldLabel}>NAME</Text>
+                <TextInput
+                  autoCapitalize="words"
+                  autoComplete="name"
+                  onChangeText={setName}
+                  placeholder="Your name"
+                  placeholderTextColor={Colors.textDim}
+                  selectionColor={Colors.primary}
+                  style={styles.authInput}
+                  value={name}
+                />
+
+                <Text style={styles.authFieldLabel}>USERNAME</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={setUsername}
+                  placeholder="your_username"
+                  placeholderTextColor={Colors.textDim}
+                  selectionColor={Colors.primary}
+                  style={styles.authInput}
+                  value={username}
+                />
+              </>
+            ) : null}
+
+            <Text style={styles.authFieldLabel}>{isCreatingAccount ? 'EMAIL ADDRESS' : 'EMAIL OR USERNAME'}</Text>
             <TextInput
               autoCapitalize="none"
               autoComplete="email"
-              keyboardType="email-address"
+              keyboardType={isCreatingAccount ? 'email-address' : 'default'}
               onChangeText={setEmail}
-              placeholder="you@example.com"
+              placeholder={isCreatingAccount ? 'you@example.com' : 'you@example.com or username'}
               placeholderTextColor={Colors.textDim}
               selectionColor={Colors.primary}
               style={styles.authInput}
@@ -1844,7 +1896,6 @@ function ProfileTab({
   onOpenWatchHistory,
   onOpenLikes,
   onOpenWallet,
-  onOpenAlerts,
   onEditProfile,
   onOpenSettings,
   onOpenHelp,
@@ -1856,7 +1907,6 @@ function ProfileTab({
   onOpenWatchHistory: () => void;
   onOpenLikes: () => void;
   onOpenWallet: () => void;
-  onOpenAlerts: () => void;
   onEditProfile: () => void;
   onOpenSettings: () => void;
   onOpenHelp: () => void;
@@ -1864,6 +1914,7 @@ function ProfileTab({
 }) {
   const profileName = user?.name || 'AfroReel Viewer';
   const profileEmail = user?.email || 'Signed-in account';
+  const profileHandle = user?.username ? `@${user.username}` : profileEmail;
   const profileInitial = profileName.trim().charAt(0).toUpperCase() || 'A';
   const continueItems = getContinueWatchingSeries(series);
   const watchedEpisodeCount = continueItems.length;
@@ -1876,7 +1927,7 @@ function ProfileTab({
           <Text style={styles.profileAvatarText}>{profileInitial}</Text>
         </View>
         <Text style={styles.profileName}>{profileName}</Text>
-        <Text style={styles.profileEmail}>{profileEmail}</Text>
+        <Text style={styles.profileEmail}>{profileHandle}</Text>
         <Pressable style={styles.profileEditButton} onPress={onEditProfile}>
           <Text style={styles.profileEditText}>Edit profile</Text>
         </Pressable>
@@ -1898,7 +1949,7 @@ function ProfileTab({
       </ProfileSection>
 
       <ProfileSection title="Preferences">
-        <ProfileRow mark="N" label="Notifications" description="New episodes and reward alerts" onPress={onOpenAlerts} />
+        <ProfileRow mark="N" label="Notification settings" description="New episodes and reward alerts" onPress={onOpenSettings} />
         <ProfileRow mark="S" label="Settings" description="Playback, privacy, and account" onPress={onOpenSettings} />
         <ProfileRow mark="?" label="Help and support" description="Get answers or contact us" onPress={onOpenHelp} />
       </ProfileSection>
@@ -1952,6 +2003,203 @@ function ProfileRow({
         <Text style={styles.profileRowDescription}>{description}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textDim} />
+    </Pressable>
+  );
+}
+
+function ProfileSettingsScreen({
+  user,
+  onBack,
+  onUserChange,
+}: {
+  user: AuthUser | null;
+  onBack: () => void;
+  onUserChange: (user: AuthUser) => void;
+}) {
+  const [pane, setPane] = useState<'menu' | 'edit' | 'password' | 'notifications'>('menu');
+  const [name, setName] = useState(user?.name ?? '');
+  const [username, setUsername] = useState(user?.username ?? '');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [newEpisodeNotifications, setNewEpisodeNotifications] = useState(true);
+  const [walletNotifications, setWalletNotifications] = useState(true);
+  const [continueNotifications, setContinueNotifications] = useState(true);
+
+  useEffect(() => {
+    setName(user?.name ?? '');
+    setUsername(user?.username ?? '');
+    setEmail(user?.email ?? '');
+  }, [user?.email, user?.name, user?.username]);
+
+  const clearStatus = useCallback(() => {
+    setMessage('');
+    setError('');
+  }, []);
+
+  const openPane = useCallback((nextPane: 'menu' | 'edit' | 'password' | 'notifications') => {
+    clearStatus();
+    setPane(nextPane);
+  }, [clearStatus]);
+
+  const saveProfile = useCallback(async () => {
+    if (isSaving) {
+      return;
+    }
+
+    const nextName = name.trim();
+    const nextUsername = username.trim().toLowerCase();
+    const nextEmail = email.trim().toLowerCase();
+
+    if (!nextName || !/^[a-z0-9_]{3,24}$/.test(nextUsername) || !nextEmail) {
+      setError('Enter your name, email, and a username with 3 to 24 letters, numbers, or underscores.');
+      return;
+    }
+
+    setIsSaving(true);
+    clearStatus();
+
+    try {
+      const payload = await fetchJson<{ user: AuthUser }>('/api/account/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ name: nextName, username: nextUsername, email: nextEmail }),
+      });
+      onUserChange(payload.user);
+      setMessage('Account updated.');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not update account.');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [clearStatus, email, isSaving, name, onUserChange, username]);
+
+  const savePassword = useCallback(async () => {
+    if (isSaving) {
+      return;
+    }
+
+    if (!currentPassword || newPassword.length < 8 || newPassword !== confirmPassword) {
+      setError('Enter your current password and matching new password with at least 8 characters.');
+      return;
+    }
+
+    setIsSaving(true);
+    clearStatus();
+
+    try {
+      await fetchJson<{ success: boolean }>('/api/account/password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setMessage('Password changed.');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not change password.');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [clearStatus, confirmPassword, currentPassword, isSaving, newPassword]);
+
+  const goBack = pane === 'menu' ? onBack : () => openPane('menu');
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <View style={styles.screen}>
+        <View style={styles.categoryHeader}>
+          <Pressable style={styles.iconButton} onPress={goBack} accessibilityLabel="Back">
+            <Ionicons name="chevron-back" size={22} color={Colors.text} />
+          </Pressable>
+          <View style={styles.categoryHeaderCopy}>
+            <Text style={styles.eyebrow}>Profile</Text>
+            <Text style={styles.headerTitle}>
+              {pane === 'edit' ? 'Edit account' : pane === 'password' ? 'Change password' : pane === 'notifications' ? 'Notification settings' : 'Settings'}
+            </Text>
+          </View>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+          {pane === 'menu' ? (
+            <ProfileSection title="Account">
+              <ProfileRow mark="P" label="Edit account" description="Update your name, username, and email" onPress={() => openPane('edit')} />
+              <ProfileRow mark="L" label="Change password" description="Update your account password" onPress={() => openPane('password')} />
+              <ProfileRow mark="N" label="Notification settings" description="Choose the alerts you want to see" onPress={() => openPane('notifications')} />
+            </ProfileSection>
+          ) : null}
+
+          {pane === 'edit' ? (
+            <View style={styles.settingsForm}>
+              <Text style={styles.authFieldLabel}>NAME</Text>
+              <TextInput autoCapitalize="words" onChangeText={setName} placeholder="Your name" placeholderTextColor={Colors.textDim} selectionColor={Colors.primary} style={styles.authInput} value={name} />
+              <Text style={styles.authFieldLabel}>USERNAME</Text>
+              <TextInput autoCapitalize="none" autoCorrect={false} onChangeText={setUsername} placeholder="username" placeholderTextColor={Colors.textDim} selectionColor={Colors.primary} style={styles.authInput} value={username} />
+              <Text style={styles.authFieldLabel}>EMAIL ADDRESS</Text>
+              <TextInput autoCapitalize="none" keyboardType="email-address" onChangeText={setEmail} placeholder="you@example.com" placeholderTextColor={Colors.textDim} selectionColor={Colors.primary} style={styles.authInput} value={email} />
+              {message ? <Text style={styles.settingsSuccess}>{message}</Text> : null}
+              {error ? <Text style={styles.authError}>{error}</Text> : null}
+              <Pressable style={[styles.paymentButton, isSaving && styles.authContinueButtonDisabled]} onPress={saveProfile} disabled={isSaving}>
+                <Text style={styles.primaryButtonText}>{isSaving ? 'Saving...' : 'Save account'}</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {pane === 'password' ? (
+            <View style={styles.settingsForm}>
+              <Text style={styles.authFieldLabel}>CURRENT PASSWORD</Text>
+              <TextInput autoCapitalize="none" onChangeText={setCurrentPassword} placeholder="Current password" placeholderTextColor={Colors.textDim} secureTextEntry selectionColor={Colors.primary} style={styles.authInput} value={currentPassword} />
+              <Text style={styles.authFieldLabel}>NEW PASSWORD</Text>
+              <TextInput autoCapitalize="none" onChangeText={setNewPassword} placeholder="At least 8 characters" placeholderTextColor={Colors.textDim} secureTextEntry selectionColor={Colors.primary} style={styles.authInput} value={newPassword} />
+              <Text style={styles.authFieldLabel}>CONFIRM PASSWORD</Text>
+              <TextInput autoCapitalize="none" onChangeText={setConfirmPassword} placeholder="Confirm new password" placeholderTextColor={Colors.textDim} secureTextEntry selectionColor={Colors.primary} style={styles.authInput} value={confirmPassword} />
+              {message ? <Text style={styles.settingsSuccess}>{message}</Text> : null}
+              {error ? <Text style={styles.authError}>{error}</Text> : null}
+              <Pressable style={[styles.paymentButton, isSaving && styles.authContinueButtonDisabled]} onPress={savePassword} disabled={isSaving}>
+                <Text style={styles.primaryButtonText}>{isSaving ? 'Saving...' : 'Change password'}</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {pane === 'notifications' ? (
+            <ProfileSection title="Notification settings">
+              <SettingsToggleRow label="New episodes" description="Series updates and new releases" value={newEpisodeNotifications} onChange={setNewEpisodeNotifications} />
+              <SettingsToggleRow label="Wallet updates" description="Coin purchases and balance changes" value={walletNotifications} onChange={setWalletNotifications} />
+              <SettingsToggleRow label="Continue watching" description="Resume reminders for started series" value={continueNotifications} onChange={setContinueNotifications} />
+            </ProfileSection>
+          ) : null}
+        </ScrollView>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function SettingsToggleRow({
+  label,
+  description,
+  value,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <Pressable style={styles.profileRow} onPress={() => onChange(!value)}>
+      <View style={styles.profileRowIcon}>
+        <Ionicons name={value ? 'notifications' : 'notifications-off'} size={18} color={Colors.primary} />
+      </View>
+      <View style={styles.profileRowCopy}>
+        <Text style={styles.profileRowLabel}>{label}</Text>
+        <Text style={styles.profileRowDescription}>{description}</Text>
+      </View>
+      <View style={[styles.settingsSwitch, value && styles.settingsSwitchOn]}>
+        <View style={[styles.settingsSwitchKnob, value && styles.settingsSwitchKnobOn]} />
+      </View>
     </Pressable>
   );
 }
@@ -4198,6 +4446,41 @@ const styles = StyleSheet.create({
     color: Colors.textDim,
     fontSize: 18,
     fontWeight: '700',
+  },
+  settingsForm: {
+    paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[5],
+  },
+  settingsSuccess: {
+    color: Colors.success,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: Spacing[4],
+  },
+  settingsSwitch: {
+    backgroundColor: Colors.backgroundSurface,
+    borderColor: Colors.border,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    height: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    width: 48,
+  },
+  settingsSwitchOn: {
+    backgroundColor: Colors.primaryBg,
+    borderColor: Colors.primary,
+  },
+  settingsSwitchKnob: {
+    backgroundColor: Colors.textDim,
+    borderRadius: Radius.full,
+    height: 20,
+    width: 20,
+  },
+  settingsSwitchKnobOn: {
+    alignSelf: 'flex-end',
+    backgroundColor: Colors.primary,
   },
   profileLogoutArea: {
     alignItems: 'center',

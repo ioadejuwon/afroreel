@@ -1,11 +1,18 @@
 import { Router, type Request } from "express";
-import { attemptMobileLogin, createMobileUser, requireMobileUser } from "../auth";
+import {
+  attemptMobileLogin,
+  changeMobilePassword,
+  createMobileUser,
+  requireMobileUser,
+  updateMobileUserProfile,
+} from "../auth";
 import { config } from "../config";
 import {
   addEpisodeComment,
   getEpisodeDatabaseId,
   getEpisodeEngagement,
   getEpisodeForPlayback,
+  getEpisodePublicId,
   InsufficientCoinsError,
   listLikedEpisodes,
   listEpisodeComments,
@@ -26,18 +33,20 @@ const walletTopUpCoins = new Set([100, 300, 1000]);
 apiRouter.post("/auth/signup", async (req, res, next) => {
   try {
     const email = stringBody(req.body?.email).toLowerCase();
+    const name = stringBody(req.body?.name);
+    const username = stringBody(req.body?.username).toLowerCase();
     const password = passwordBody(req.body?.password);
 
-    if (!isValidEmail(email) || password.length < 8) {
-      res.status(400).json({ error: "Enter a valid email and a password with at least 8 characters." });
+    if (!name || !isValidEmail(email) || !isValidUsername(username) || password.length < 8) {
+      res.status(400).json({ error: "Enter your name, a valid email, a username, and a password with at least 8 characters." });
       return;
     }
 
-    const result = await createMobileUser(email, password);
+    const result = await createMobileUser({ email, password, name, username });
     res.status(201).json({ token: result.token, user: mobileUserResponse(result.user) });
   } catch (error) {
     if (isDuplicateEmailError(error)) {
-      res.status(409).json({ error: "An account with this email already exists." });
+      res.status(409).json({ error: "That email or username is already taken." });
       return;
     }
 
@@ -47,9 +56,9 @@ apiRouter.post("/auth/signup", async (req, res, next) => {
 
 apiRouter.post("/auth/signin", async (req, res, next) => {
   try {
-    const email = stringBody(req.body?.email).toLowerCase();
+    const identifier = stringBody(req.body?.identifier ?? req.body?.email).toLowerCase();
     const password = passwordBody(req.body?.password);
-    const result = await attemptMobileLogin(email, password);
+    const result = await attemptMobileLogin(identifier, password);
 
     if (!result) {
       res.status(401).json({ error: "Invalid email or password." });
@@ -67,6 +76,52 @@ apiRouter.get("/auth/me", requireMobileUser, (req, res) => {
 });
 
 apiRouter.use(requireMobileUser);
+
+apiRouter.patch("/account/profile", async (req, res, next) => {
+  try {
+    const name = stringBody(req.body?.name);
+    const email = stringBody(req.body?.email).toLowerCase();
+    const username = stringBody(req.body?.username).toLowerCase();
+
+    if (!name || !isValidEmail(email) || !isValidUsername(username)) {
+      res.status(400).json({ error: "Enter your name, a valid email, and a username." });
+      return;
+    }
+
+    const user = await updateMobileUserProfile(mobileUserId(req), { name, email, username });
+    req.mobileUser = user;
+    res.json({ user: mobileUserResponse(user) });
+  } catch (error) {
+    if (isDuplicateEmailError(error)) {
+      res.status(409).json({ error: "That email or username is already taken." });
+      return;
+    }
+
+    next(error);
+  }
+});
+
+apiRouter.post("/account/password", async (req, res, next) => {
+  try {
+    const currentPassword = passwordBody(req.body?.currentPassword);
+    const newPassword = passwordBody(req.body?.newPassword);
+
+    if (!currentPassword || newPassword.length < 8) {
+      res.status(400).json({ error: "Enter your current password and a new password with at least 8 characters." });
+      return;
+    }
+
+    const didChange = await changeMobilePassword(mobileUserId(req), currentPassword, newPassword);
+    if (!didChange) {
+      res.status(401).json({ error: "Current password is incorrect." });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
 
 apiRouter.get("/series", async (req, res, next) => {
   try {
@@ -195,7 +250,7 @@ apiRouter.get("/profile/likes", async (req, res, next) => {
 apiRouter.post("/episodes/:episodeId/unlock", async (req, res, next) => {
   try {
     const publicEpisodeId = req.params.episodeId;
-    const episodeId = await getEpisodeDatabaseId(publicEpisodeId);
+    const episodeId = await getEpisodePublicId(publicEpisodeId);
     if (!episodeId) {
       res.status(404).json({ error: "Episode is not available." });
       return;
@@ -209,7 +264,7 @@ apiRouter.post("/episodes/:episodeId/unlock", async (req, res, next) => {
     };
     res.json({
       success: true,
-      episodeId: publicEpisodeId,
+      episodeId,
       ...unlockResult,
       user: mobileUserResponse(req.mobileUser),
     });
@@ -267,7 +322,7 @@ apiRouter.post("/episodes/:episodeId/playback", async (req, res, next) => {
 
 apiRouter.post("/episodes/:episodeId/progress", async (req, res, next) => {
   try {
-    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    const episodeId = await getEpisodePublicId(req.params.episodeId);
     if (!episodeId) {
       res.status(404).json({ error: "Episode is not available." });
       return;
@@ -282,7 +337,7 @@ apiRouter.post("/episodes/:episodeId/progress", async (req, res, next) => {
 
 apiRouter.get("/episodes/:episodeId/engagement", async (req, res, next) => {
   try {
-    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    const episodeId = await getEpisodePublicId(req.params.episodeId);
     if (!episodeId) {
       res.status(404).json({ error: "Episode is not available." });
       return;
@@ -295,7 +350,7 @@ apiRouter.get("/episodes/:episodeId/engagement", async (req, res, next) => {
 
 apiRouter.post("/episodes/:episodeId/reactions", async (req, res, next) => {
   try {
-    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    const episodeId = await getEpisodePublicId(req.params.episodeId);
     if (!episodeId) {
       res.status(404).json({ error: "Episode is not available." });
       return;
@@ -314,7 +369,7 @@ apiRouter.post("/episodes/:episodeId/reactions", async (req, res, next) => {
 
 apiRouter.get("/episodes/:episodeId/comments", async (req, res, next) => {
   try {
-    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    const episodeId = await getEpisodePublicId(req.params.episodeId);
     if (!episodeId) {
       res.status(404).json({ error: "Episode is not available." });
       return;
@@ -329,7 +384,7 @@ apiRouter.get("/episodes/:episodeId/comments", async (req, res, next) => {
 
 apiRouter.post("/episodes/:episodeId/comments", async (req, res, next) => {
   try {
-    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    const episodeId = await getEpisodePublicId(req.params.episodeId);
     if (!episodeId) {
       res.status(404).json({ error: "Episode is not available." });
       return;
@@ -379,6 +434,10 @@ function passwordBody(value: unknown): string {
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isValidUsername(value: string): boolean {
+  return /^[a-z0-9_]{3,24}$/.test(value);
 }
 
 function isDuplicateEmailError(error: unknown): boolean {
@@ -447,7 +506,7 @@ function profileEpisodeResponse(req: Request, item: {
   };
 }
 
-function mobileUserResponse(user: Request["mobileUser"]): { id: string; email: string; name: string; coinBalance: number } | null {
+function mobileUserResponse(user: Request["mobileUser"]): { id: string; email: string; username: string | null; name: string; coinBalance: number } | null {
   if (!user) {
     return null;
   }
@@ -455,6 +514,7 @@ function mobileUserResponse(user: Request["mobileUser"]): { id: string; email: s
   return {
     id: user.userId,
     email: user.email,
+    username: user.username,
     name: user.name,
     coinBalance: user.coinBalance,
   };
