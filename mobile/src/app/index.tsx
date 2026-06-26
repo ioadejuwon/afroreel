@@ -1866,13 +1866,13 @@ const styles = StyleSheet.create({
   splashBrand: {
     color: Colors.text,
     fontSize: 42,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   splashEyebrow: {
     color: Colors.primary,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[3],
   },
@@ -1930,7 +1930,7 @@ const styles = StyleSheet.create({
   onboardingBrand: {
     color: Colors.primary,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   onboardingSkip: {
@@ -1962,14 +1962,14 @@ const styles = StyleSheet.create({
   onboardingEyebrow: {
     color: Colors.primary,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginBottom: Spacing[3],
   },
   onboardingTitle: {
     color: Colors.text,
     fontSize: 40,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     lineHeight: 44,
     maxWidth: 345,
@@ -1995,12 +1995,12 @@ const styles = StyleSheet.create({
   onboardingButtonText: {
     color: Colors.textOnPrimary,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   onboardingButtonArrow: {
     color: Colors.textOnPrimary,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '700',
     marginLeft: Spacing[2],
   },
   authScreen: {
@@ -2032,13 +2032,13 @@ const styles = StyleSheet.create({
   authBrand: {
     color: Colors.primary,
     fontSize: 34,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   authEyebrow: {
     color: Colors.textMuted,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[2],
   },
@@ -2052,7 +2052,7 @@ const styles = StyleSheet.create({
   authTitle: {
     color: Colors.text,
     fontSize: 29,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   authSubtitle: {
@@ -2066,7 +2066,7 @@ const styles = StyleSheet.create({
   authFieldLabel: {
     color: Colors.textMuted,
     fontSize: 9,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginBottom: Spacing[2],
     marginTop: Spacing[3],
@@ -2113,7 +2113,7 @@ const styles = StyleSheet.create({
   authDividerText: {
     color: Colors.textDim,
     fontSize: 9,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   authSocialRow: {
@@ -2135,7 +2135,7 @@ const styles = StyleSheet.create({
   authSocialMark: {
     color: Colors.text,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   authSocialText: {
     color: Colors.text,
@@ -2156,7 +2156,7 @@ const styles = StyleSheet.create({
   authToggleAction: {
     color: Colors.primary,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   walletHero: {
     alignItems: 'center',
@@ -2167,7 +2167,7 @@ const styles = StyleSheet.create({
   walletEyebrow: {
     color: Colors.primary,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   walletCoinMark: {
@@ -2183,12 +2183,12 @@ const styles = StyleSheet.create({
   walletCoinMarkText: {
     color: Colors.textOnPrimary,
     fontSize: 26,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   walletBalance: {
     color: Colors.primary,
     fontSize: 64,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[3],
   },
@@ -2245,7 +2245,7 @@ const styles = StyleSheet.create({
   packageCoinMarkText: {
     color: Colors.primary,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   packageCopy: {
     flex: 1,
@@ -2259,14 +2259,14 @@ const styles = StyleSheet.create({
   packageName: {
     color: Colors.text,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   packageBonus: {
     backgroundColor: Colors.successBg,
     borderRadius: Radius.full,
     color: Colors.success,
     fontSize: 9,
-    fontWeight: '900',
+    fontWeight: '700',
     paddingHorizontal: Spacing[2],
     paddingVertical: 2,
   },
@@ -2279,7 +2279,7 @@ const styles = StyleSheet.create({
   packagePrice: {
     color: Colors.primary,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   walletPurchaseButton: {
     alignItems: 'center',
@@ -2318,7 +2318,7 @@ const styles = StyleSheet.create({
   earnIconText: {
     color: Colors.primary,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   earnCopy: {
     flex: 1,
@@ -2326,7 +2326,7 @@ const styles = StyleSheet.create({
   earnLabel: {
     color: Colors.text,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   earnDescription: {
     color: Colors.textMuted,
@@ -2350,7 +2350,7 @@ const styles = StyleSheet.create({
   rewardText: {
     color: Colors.success,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '700',
     textAlign: 'center',
   },
   rewardTextDisabled: {
@@ -2378,7 +2378,7 @@ const styles = StyleSheet.create({
   paymentSectionTitle: {
     color: Colors.text,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginBottom: Spacing[3],
     marginTop: Spacing[3],
@@ -2437,7 +2437,7 @@ const styles = StyleSheet.create({
   paymentMethodIconText: {
     color: Colors.primary,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   paymentMethodCopy: {
     flex: 1,
@@ -2445,7 +2445,7 @@ const styles = StyleSheet.create({
   paymentMethodLabel: {
     color: Colors.text,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   paymentMethodDescription: {
     color: Colors.textMuted,
@@ -2493,12 +2493,12 @@ const styles = StyleSheet.create({
   paymentSummaryValue: {
     color: Colors.text,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   paymentSummaryTotal: {
     color: Colors.primary,
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   paymentSecurity: {
     color: Colors.textDim,
@@ -2538,19 +2538,19 @@ const styles = StyleSheet.create({
   paymentSuccessIconText: {
     color: Colors.textOnPrimary,
     fontSize: 36,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   paymentSuccessEyebrow: {
     color: Colors.primary,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[6],
   },
   paymentSuccessTitle: {
     color: Colors.text,
     fontSize: 30,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[3],
     textAlign: 'center',
@@ -2583,7 +2583,7 @@ const styles = StyleSheet.create({
   notificationsClear: {
     color: Colors.primary,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   notificationGroup: {
     marginTop: Spacing[5],
@@ -2591,7 +2591,7 @@ const styles = StyleSheet.create({
   notificationGroupTitle: {
     color: Colors.textMuted,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     paddingBottom: Spacing[3],
     paddingHorizontal: Spacing[5],
@@ -2629,7 +2629,7 @@ const styles = StyleSheet.create({
   notificationIconText: {
     color: Colors.danger,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   notificationIconTextGold: {
     color: Colors.primary,
@@ -2647,7 +2647,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
     flex: 1,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
     lineHeight: 18,
   },
   notificationTime: {
@@ -2692,12 +2692,12 @@ const styles = StyleSheet.create({
   profileAvatarText: {
     color: Colors.textOnPrimary,
     fontSize: 36,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   profileName: {
     color: Colors.text,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[4],
   },
@@ -2718,7 +2718,7 @@ const styles = StyleSheet.create({
   profileEditText: {
     color: Colors.primary,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   profileStats: {
     alignItems: 'center',
@@ -2739,7 +2739,7 @@ const styles = StyleSheet.create({
   profileStatValue: {
     color: Colors.primary,
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   profileStatLabel: {
     color: Colors.textMuted,
@@ -2759,7 +2759,7 @@ const styles = StyleSheet.create({
   profileSectionTitle: {
     color: Colors.textMuted,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     paddingBottom: Spacing[3],
     paddingHorizontal: Spacing[5],
@@ -2792,7 +2792,7 @@ const styles = StyleSheet.create({
   profileRowIconText: {
     color: Colors.primary,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   profileRowCopy: {
     flex: 1,
@@ -2800,7 +2800,7 @@ const styles = StyleSheet.create({
   profileRowLabel: {
     color: Colors.text,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   profileRowDescription: {
     color: Colors.textMuted,
@@ -2811,7 +2811,7 @@ const styles = StyleSheet.create({
   profileRowArrow: {
     color: Colors.textDim,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   profileLogoutArea: {
     alignItems: 'center',
@@ -2830,7 +2830,7 @@ const styles = StyleSheet.create({
   profileLogoutText: {
     color: Colors.danger,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   profileVersion: {
     color: Colors.textDim,
@@ -2887,13 +2887,13 @@ const styles = StyleSheet.create({
   continueCardTitle: {
     color: Colors.text,
     fontSize: 21,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   continueCardMeta: {
     color: Colors.primary,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '700',
     marginTop: Spacing[1],
   },
   continueCardFooter: {
@@ -2933,7 +2933,7 @@ const styles = StyleSheet.create({
   continueResumeText: {
     color: Colors.textOnPrimary,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   playerScreen: {
     backgroundColor: Colors.black,
@@ -2969,7 +2969,7 @@ const styles = StyleSheet.create({
   playerPortraitText: {
     color: 'rgba(255,255,255,0.52)',
     fontSize: 136,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   playerSafeArea: {
     flex: 1,
@@ -2994,7 +2994,7 @@ const styles = StyleSheet.create({
   playerRoundButtonText: {
     color: Colors.white,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   coinChip: {
     alignItems: 'center',
@@ -3010,12 +3010,12 @@ const styles = StyleSheet.create({
   coinChipMark: {
     color: Colors.primary,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   coinChipText: {
     color: Colors.primary,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   playerTapArea: {
     bottom: 174,
@@ -3039,7 +3039,7 @@ const styles = StyleSheet.create({
   playerPauseIconText: {
     color: Colors.white,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   playerDetails: {
     bottom: 82,
@@ -3050,13 +3050,13 @@ const styles = StyleSheet.create({
   playerSeries: {
     color: Colors.white,
     fontSize: 23,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   playerEpisode: {
     color: Colors.primary,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
     marginTop: Spacing[2],
   },
   playerHook: {
@@ -3095,7 +3095,7 @@ const styles = StyleSheet.create({
   playerActionIconText: {
     color: Colors.white,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   playerActionLabel: {
     color: 'rgba(255,255,255,0.72)',
@@ -3149,18 +3149,18 @@ const styles = StyleSheet.create({
   lockedEpisodeIconText: {
     color: Colors.primary,
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   lockedEpisodeEyebrow: {
     color: Colors.primary,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   lockedEpisodeTitle: {
     color: Colors.white,
     fontSize: 30,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[3],
     textAlign: 'center',
@@ -3211,13 +3211,13 @@ const styles = StyleSheet.create({
   unlockEyebrow: {
     color: Colors.primary,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   unlockTitle: {
     color: Colors.text,
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[2],
   },
@@ -3255,7 +3255,7 @@ const styles = StyleSheet.create({
   unlockOptionIconText: {
     color: Colors.primary,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   unlockOptionCopy: {
     flex: 1,
@@ -3263,7 +3263,7 @@ const styles = StyleSheet.create({
   unlockOptionTitle: {
     color: Colors.text,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   unlockOptionBody: {
     color: Colors.textMuted,
@@ -3274,12 +3274,12 @@ const styles = StyleSheet.create({
   unlockOptionReward: {
     color: Colors.success,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   unlockOptionPrice: {
     color: Colors.primary,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   unlockLater: {
     alignItems: 'center',
@@ -3332,7 +3332,7 @@ const styles = StyleSheet.create({
   detailArtworkText: {
     color: 'rgba(255,255,255,0.52)',
     fontSize: 112,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   detailTopBar: {
     flexDirection: 'row',
@@ -3357,14 +3357,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: Colors.textMuted,
     fontSize: 9,
-    fontWeight: '900',
+    fontWeight: '700',
     paddingHorizontal: Spacing[3],
     paddingVertical: Spacing[1],
   },
   detailTitle: {
     color: Colors.text,
     fontSize: 34,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   detailMeta: {
@@ -3405,7 +3405,7 @@ const styles = StyleSheet.create({
   detailSort: {
     color: Colors.primary,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   detailEpisodeList: {
     borderTopColor: Colors.border,
@@ -3432,7 +3432,7 @@ const styles = StyleSheet.create({
   episodeThumbText: {
     color: 'rgba(255,255,255,0.62)',
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   episodeCopy: {
     flex: 1,
@@ -3440,7 +3440,7 @@ const styles = StyleSheet.create({
   episodeTitle: {
     color: Colors.text,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   episodeHook: {
     color: Colors.textMuted,
@@ -3477,7 +3477,7 @@ const styles = StyleSheet.create({
   },
   episodeBadgeText: {
     fontSize: 9,
-    fontWeight: '900',
+    fontWeight: '700',
     textAlign: 'center',
   },
   episodeBadgeTextFree: {
@@ -3549,7 +3549,7 @@ const styles = StyleSheet.create({
   avatarText: {
     color: Colors.textOnPrimary,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   heroCard: {
     borderColor: Colors.border,
@@ -3576,7 +3576,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: Colors.primary,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginBottom: Spacing[2],
     paddingHorizontal: Spacing[3],
@@ -3585,7 +3585,7 @@ const styles = StyleSheet.create({
   heroTitle: {
     color: Colors.text,
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   heroMeta: {
@@ -3618,7 +3618,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: Colors.textOnPrimary,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   secondaryButton: {
     alignItems: 'center',
@@ -3648,7 +3648,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: Colors.text,
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
   },
   sectionAction: {
@@ -3692,7 +3692,7 @@ const styles = StyleSheet.create({
   posterTitle: {
     color: Colors.text,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
     lineHeight: 15,
   },
   posterMeta: {
@@ -3713,7 +3713,7 @@ const styles = StyleSheet.create({
   freeBadgeText: {
     color: Colors.white,
     fontSize: 9,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   lockBadge: {
     backgroundColor: Colors.primaryBg,
@@ -3729,7 +3729,7 @@ const styles = StyleSheet.create({
   lockBadgeText: {
     color: Colors.primary,
     fontSize: 9,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   progressTrack: {
     backgroundColor: Colors.border,
@@ -3763,7 +3763,7 @@ const styles = StyleSheet.create({
   posterInitial: {
     color: 'rgba(255,255,255,0.54)',
     fontSize: 32,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   heroPosterInitial: {
     fontSize: 58,
@@ -3799,7 +3799,7 @@ const styles = StyleSheet.create({
   searchGlyph: {
     color: Colors.textDim,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   searchInput: {
     color: Colors.text,
@@ -3857,7 +3857,7 @@ const styles = StyleSheet.create({
   discoveryTitle: {
     color: Colors.text,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginBottom: Spacing[2],
   },
@@ -3894,7 +3894,7 @@ const styles = StyleSheet.create({
   placeholderTitle: {
     color: Colors.text,
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: '700',
     letterSpacing: 0,
     marginTop: Spacing[2],
     textAlign: 'center',
@@ -3941,7 +3941,7 @@ const styles = StyleSheet.create({
   navIconText: {
     color: Colors.textDim,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   navIconTextActive: {
     color: Colors.primary,

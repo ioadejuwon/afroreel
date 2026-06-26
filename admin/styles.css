@@ -47,15 +47,15 @@ textarea {
 .shell {
   display: grid;
   grid-template-columns: 226px minmax(0, 1fr);
-  gap: 14px;
-  width: min(100% - 48px, 1152px);
-  min-height: calc(100vh - 96px);
-  margin: 48px auto;
-  padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 36px;
+  gap: 18px;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 20px;
+  border: 0;
+  border-radius: 0;
   background: rgba(22, 23, 22, 0.92);
-  box-shadow: var(--shadow);
+  box-shadow: none;
   backdrop-filter: blur(18px);
 }
 
@@ -77,9 +77,9 @@ textarea {
 
 .sidebar {
   position: sticky;
-  top: 18px;
+  top: 20px;
   z-index: 50;
-  height: calc(100vh - 132px);
+  height: calc(100vh - 40px);
   padding: 22px 14px;
   border: 0;
   border-radius: 24px;
@@ -229,7 +229,7 @@ textarea {
 
 .workspace {
   min-width: 0;
-  padding: 0;
+  padding: 2px 8px 24px 0;
 }
 
 .mobile-admin-bar {
@@ -247,7 +247,7 @@ textarea {
 
 .topbar {
   min-height: 58px;
-  margin-bottom: 34px;
+  margin-bottom: 22px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -474,7 +474,7 @@ h2 {
 }
 
 .dashboard-hero {
-  margin-bottom: 30px;
+  margin-bottom: 20px;
   padding: 0 4px;
 }
 
@@ -508,8 +508,8 @@ h2 {
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .metric-grid.compact {
@@ -529,9 +529,9 @@ h2 {
 }
 
 .metric-card {
-  min-height: 154px;
+  min-height: 132px;
   position: relative;
-  padding: 28px 24px;
+  padding: 22px 22px;
   overflow: hidden;
 }
 
@@ -569,7 +569,7 @@ th {
 
 .metric-card strong {
   display: block;
-  margin: 28px 0 10px;
+  margin: 22px 0 8px;
   font-size: 30px;
   font-weight: 400;
   line-height: 1;
@@ -637,7 +637,7 @@ th {
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .settings-grid {
@@ -649,7 +649,7 @@ th {
 }
 
 .panel {
-  padding: 24px;
+  padding: 22px;
 }
 
 .panel-header {
@@ -661,7 +661,7 @@ th {
   grid-template-columns: repeat(7, minmax(18px, 1fr));
   align-items: end;
   gap: 12px;
-  height: 170px;
+  height: 210px;
   padding: 18px;
   border-radius: 22px;
   background:
