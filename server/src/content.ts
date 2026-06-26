@@ -25,6 +25,11 @@ type SeriesIdentityRow = RowDataPacket & {
   series_id: string | null;
 };
 
+type EpisodeIdentityRow = RowDataPacket & {
+  id: number;
+  episode_id: string | null;
+};
+
 type UnlockEpisodeRow = RowDataPacket & {
   coin_cost: number;
   episode_number: number;
@@ -45,10 +50,31 @@ type WalletTransactionRow = RowDataPacket & {
   transaction_type: "top_up" | "spend" | "reward";
   coin_amount: number;
   description: string;
-  episode_id: number | null;
+  episode_id: string | null;
   series_title: string | null;
   episode_number: number | null;
   created_at: Date | string;
+};
+
+type ProfileEpisodeRow = RowDataPacket & {
+  id: number;
+  episode_id: string;
+  series_id: string;
+  series_database_id: number;
+  series_title: string;
+  slug: string;
+  synopsis: string | null;
+  genres: string | null;
+  poster_url: string | null;
+  episode_count: number | string;
+  free_episode_count: number | string;
+  latest_episode_at: Date | string | null;
+  status: SeriesStatus;
+  episode_number: number;
+  episode_title: string;
+  hook: string | null;
+  progress_seconds: number | string | null;
+  activity_at: Date | string;
 };
 
 type EpisodeReactionType = "like" | "save";
@@ -90,10 +116,35 @@ export type WalletTransaction = {
   type: "top_up" | "spend" | "reward";
   coinAmount: number;
   description: string;
-  episodeId: number | null;
+  episodeId: string | null;
   seriesTitle: string | null;
   episodeNumber: number | null;
   createdAt: Date | string;
+};
+
+export type ProfileSeries = {
+  id: number;
+  series_id: string;
+  title: string;
+  slug: string;
+  synopsis: string | null;
+  genres: string | null;
+  poster_url: string | null;
+  status: SeriesStatus;
+  episode_count: number;
+  free_episode_count: number;
+  latest_episode_at: Date | string | null;
+  progress_seconds: number;
+};
+
+export type ProfileEpisode = {
+  episodeId: string;
+  episodeNumber: number;
+  episodeTitle: string;
+  hook: string | null;
+  progressSeconds: number;
+  activityAt: Date | string;
+  series: ProfileSeries;
 };
 
 export type EpisodeEngagement = {
@@ -119,6 +170,7 @@ export type CreatedSeries = {
 
 export type EpisodeRow = RowDataPacket & {
   id: number;
+  episode_id: string;
   series_id: number;
   series_title: string;
   episode_number: number;
@@ -267,6 +319,16 @@ async function uniqueSeriesId(): Promise<string> {
   }
 }
 
+async function uniqueEpisodeId(): Promise<string> {
+  while (true) {
+    const next = `ep_${randomBytes(8).toString("hex")}`;
+    const [rows] = await pool.execute<RowDataPacket[]>("SELECT id FROM episodes WHERE episode_id = ? LIMIT 1", [next]);
+    if (rows.length === 0) {
+      return next;
+    }
+  }
+}
+
 export async function ensureContentSchema(): Promise<void> {
   try {
     await pool.execute("ALTER TABLE series ADD COLUMN series_id VARCHAR(32) NULL UNIQUE AFTER id");
@@ -280,6 +342,29 @@ export async function ensureContentSchema(): Promise<void> {
   const [rows] = await pool.execute<SeriesIdentityRow[]>("SELECT id, series_id FROM series WHERE series_id IS NULL OR series_id = ''");
   for (const row of rows) {
     await pool.execute("UPDATE series SET series_id = ? WHERE id = ?", [await uniqueSeriesId(), row.id]);
+  }
+
+  try {
+    await pool.execute("ALTER TABLE episodes ADD COLUMN episode_id VARCHAR(32) NULL UNIQUE AFTER id");
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+    if (code !== "ER_DUP_FIELDNAME") {
+      throw error;
+    }
+  }
+
+  const [episodeRows] = await pool.execute<EpisodeIdentityRow[]>("SELECT id, episode_id FROM episodes WHERE episode_id IS NULL OR episode_id = ''");
+  for (const row of episodeRows) {
+    await pool.execute("UPDATE episodes SET episode_id = ? WHERE id = ?", [await uniqueEpisodeId(), row.id]);
+  }
+
+  try {
+    await pool.execute("ALTER TABLE episodes MODIFY episode_id VARCHAR(32) NOT NULL");
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+    if (code !== "ER_BAD_NULL_ERROR" && code !== "ER_INVALID_USE_OF_NULL") {
+      throw error;
+    }
   }
 
   await pool.execute(`
@@ -690,11 +775,13 @@ export async function createEpisode(input: {
   releaseDate: string | null;
   status: EpisodeStatus;
 }): Promise<number> {
+  const episodeId = await uniqueEpisodeId();
   const [result] = await pool.execute<ResultSetHeader>(
     `INSERT INTO episodes
-       (series_id, episode_number, title, hook, is_free, coin_cost, release_date, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (episode_id, series_id, episode_number, title, hook, is_free, coin_cost, release_date, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      episodeId,
       input.seriesId,
       input.episodeNumber,
       input.title,
@@ -707,6 +794,17 @@ export async function createEpisode(input: {
   );
 
   return result.insertId;
+}
+
+export async function getEpisodeDatabaseId(episodeIdentifier: string | number): Promise<number | null> {
+  const numericEpisodeId = Number.parseInt(String(episodeIdentifier), 10);
+  const fallbackEpisodeId = Number.isNaN(numericEpisodeId) ? 0 : numericEpisodeId;
+  const [rows] = await pool.execute<EpisodeIdentityRow[]>(
+    "SELECT id, episode_id FROM episodes WHERE episode_id = ? OR id = ? LIMIT 1",
+    [String(episodeIdentifier), fallbackEpisodeId],
+  );
+
+  return rows[0]?.id ?? null;
 }
 
 export async function attachCloudflareVideo(episodeId: number, uid: string): Promise<void> {
@@ -908,7 +1006,7 @@ export async function listWalletTransactions(userId: string): Promise<WalletTran
         t.transaction_type,
         t.coin_amount,
         t.description,
-        t.episode_id,
+        e.episode_id,
         s.title AS series_title,
         e.episode_number,
         t.created_at
@@ -931,6 +1029,122 @@ export async function listWalletTransactions(userId: string): Promise<WalletTran
     episodeNumber: row.episode_number,
     createdAt: row.created_at,
   }));
+}
+
+function mapProfileEpisode(row: ProfileEpisodeRow): ProfileEpisode {
+  return {
+    episodeId: row.episode_id,
+    episodeNumber: row.episode_number,
+    episodeTitle: row.episode_title,
+    hook: row.hook,
+    progressSeconds: numberValue(row.progress_seconds),
+    activityAt: row.activity_at,
+    series: {
+      id: row.series_database_id,
+      series_id: row.series_id,
+      title: row.series_title,
+      slug: row.slug,
+      synopsis: row.synopsis,
+      genres: row.genres,
+      poster_url: row.poster_url,
+      status: row.status,
+      episode_count: numberValue(row.episode_count),
+      free_episode_count: numberValue(row.free_episode_count),
+      latest_episode_at: row.latest_episode_at,
+      progress_seconds: numberValue(row.progress_seconds),
+    },
+  };
+}
+
+export async function listWatchHistory(userId: string): Promise<ProfileEpisode[]> {
+  const [rows] = await pool.execute<ProfileEpisodeRow[]>(
+    `SELECT
+        e.id,
+        e.episode_id,
+        s.series_id,
+        s.id AS series_database_id,
+        s.title AS series_title,
+        s.slug,
+        s.synopsis,
+        s.genres,
+        s.poster_url,
+        s.status,
+        e.episode_number,
+        e.title AS episode_title,
+        e.hook,
+        p.progress_seconds,
+        p.watched_at AS activity_at,
+        (
+          SELECT COUNT(*)
+            FROM episodes count_e
+           WHERE count_e.series_id = s.id AND count_e.status = 'live'
+        ) AS episode_count,
+        (
+          SELECT COUNT(*)
+            FROM episodes free_e
+           WHERE free_e.series_id = s.id AND free_e.status = 'live' AND free_e.is_free = 1
+        ) AS free_episode_count,
+        (
+          SELECT MAX(COALESCE(latest_e.release_date, DATE(latest_e.created_at)))
+            FROM episodes latest_e
+           WHERE latest_e.series_id = s.id AND latest_e.status = 'live'
+        ) AS latest_episode_at
+       FROM watch_progress p
+       INNER JOIN episodes e ON e.id = p.episode_id
+       INNER JOIN series s ON s.id = e.series_id
+      WHERE p.user_id = ? AND e.status = 'live' AND s.status = 'live'
+      ORDER BY p.watched_at DESC, p.id DESC
+      LIMIT 50`,
+    [userId],
+  );
+
+  return rows.map(mapProfileEpisode);
+}
+
+export async function listLikedEpisodes(userId: string): Promise<ProfileEpisode[]> {
+  const [rows] = await pool.execute<ProfileEpisodeRow[]>(
+    `SELECT
+        e.id,
+        e.episode_id,
+        s.series_id,
+        s.id AS series_database_id,
+        s.title AS series_title,
+        s.slug,
+        s.synopsis,
+        s.genres,
+        s.poster_url,
+        s.status,
+        e.episode_number,
+        e.title AS episode_title,
+        e.hook,
+        p.progress_seconds,
+        r.created_at AS activity_at,
+        (
+          SELECT COUNT(*)
+            FROM episodes count_e
+           WHERE count_e.series_id = s.id AND count_e.status = 'live'
+        ) AS episode_count,
+        (
+          SELECT COUNT(*)
+            FROM episodes free_e
+           WHERE free_e.series_id = s.id AND free_e.status = 'live' AND free_e.is_free = 1
+        ) AS free_episode_count,
+        (
+          SELECT MAX(COALESCE(latest_e.release_date, DATE(latest_e.created_at)))
+            FROM episodes latest_e
+           WHERE latest_e.series_id = s.id AND latest_e.status = 'live'
+        ) AS latest_episode_at
+       FROM episode_reactions r
+       INNER JOIN episodes e ON e.id = r.episode_id
+       INNER JOIN series s ON s.id = e.series_id
+       LEFT JOIN watch_progress p ON p.episode_id = e.id AND p.user_id = r.user_id
+      WHERE r.user_id = ? AND r.reaction_type = 'like' AND e.status = 'live' AND s.status = 'live'
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 50`,
+    [userId],
+  );
+
+  return rows.map(mapProfileEpisode);
 }
 
 export async function saveProgress(episodeId: number, userId: string, progressSeconds: number): Promise<void> {

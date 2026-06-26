@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
+  Alert,
   ImageBackground,
   ImageSourcePropType,
   PanResponder,
@@ -50,7 +51,8 @@ type Drama = {
 
 type Tab = 'Home' | 'Discover' | 'Wallet' | 'Alerts' | 'Profile';
 type PlayerEpisode = {
-  id?: number;
+  id?: string;
+  databaseId?: number;
   seriesTitle?: string;
   number: number;
   title: string;
@@ -61,7 +63,7 @@ type PlayerEpisode = {
   coinCost?: number;
 };
 type UnlockMethod = 'coins' | 'ad';
-type AppView = 'tabs' | 'series-detail' | 'continue-watching' | 'category-list' | 'payment';
+type AppView = 'tabs' | 'series-detail' | 'continue-watching' | 'profile-history' | 'profile-likes' | 'category-list' | 'payment';
 type EntryStep = 'splash' | 'onboarding' | 'auth' | 'app';
 type SeriesCategory = 'continue' | 'trending' | 'new' | 'free';
 type AuthUser = {
@@ -202,7 +204,8 @@ type ApiSeries = {
 };
 
 type ApiEpisode = {
-  id: number;
+  id: string;
+  databaseId: number;
   seriesTitle: string;
   episodeNumber: number;
   title: string;
@@ -213,12 +216,22 @@ type ApiEpisode = {
   progressSeconds: number;
 };
 
+type ApiProfileEpisode = {
+  episodeId: string;
+  episodeNumber: number;
+  episodeTitle: string;
+  hook: string | null;
+  progressSeconds: number;
+  activityAt: string;
+  series: ApiSeries;
+};
+
 type WalletTransaction = {
   id: number;
   type: 'top_up' | 'spend' | 'reward';
   coinAmount: number;
   description: string;
-  episodeId: number | null;
+  episodeId: string | null;
   seriesTitle: string | null;
   episodeNumber: number | null;
   createdAt: string;
@@ -528,6 +541,22 @@ export default function HomeScreen() {
     setActiveView('category-list');
   }, []);
 
+  const showProfilePlaceholder = useCallback((title: string) => {
+    Alert.alert(title, 'This profile tool is coming soon.');
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await SecureStore.deleteItemAsync(AUTH_TOKEN_STORAGE_KEY);
+    setApiAuthToken(null);
+    setAuthToken(null);
+    setCurrentUser(null);
+    setSeriesCatalog([]);
+    setSelectedSeries(null);
+    setActiveTab('Home');
+    setActiveView('tabs');
+    setEntryStep('auth');
+  }, []);
+
   if (entryStep === 'splash') {
     return <SplashScreen onComplete={() => setEntryStep(authToken ? 'app' : 'onboarding')} />;
   }
@@ -579,6 +608,38 @@ export default function HomeScreen() {
         onResume={openPlayer}
         onRefresh={refreshSeriesCatalog}
         isRefreshing={isRefreshingCatalog}
+      />
+    );
+  }
+
+  if (activeView === 'profile-history') {
+    return (
+      <ProfileActivityScreen
+        title="Watch History"
+        eyebrow="Your activity"
+        intro="Episodes you have played most recently."
+        endpoint="/api/profile/watch-history"
+        emptyTitle="No watch history yet"
+        emptyBody="Episodes will appear here after playback starts."
+        actionLabel="Resume"
+        onBack={() => setActiveView('tabs')}
+        onOpenItem={openPlayer}
+      />
+    );
+  }
+
+  if (activeView === 'profile-likes') {
+    return (
+      <ProfileActivityScreen
+        title="Likes"
+        eyebrow="Saved reactions"
+        intro="Episodes you have liked across AfroReel."
+        endpoint="/api/profile/likes"
+        emptyTitle="No liked episodes yet"
+        emptyBody="Tap the heart on an episode to collect it here."
+        actionLabel="Open"
+        onBack={() => setActiveView('tabs')}
+        onOpenItem={openSeries}
       />
     );
   }
@@ -647,6 +708,14 @@ export default function HomeScreen() {
             user={currentUser}
             series={seriesCatalog}
             onOpenContinueWatching={() => setActiveView('continue-watching')}
+            onOpenWatchHistory={() => setActiveView('profile-history')}
+            onOpenLikes={() => setActiveView('profile-likes')}
+            onOpenWallet={() => setActiveTab('Wallet')}
+            onOpenAlerts={() => setActiveTab('Alerts')}
+            onEditProfile={() => showProfilePlaceholder('Edit profile')}
+            onOpenSettings={() => showProfilePlaceholder('Settings')}
+            onOpenHelp={() => showProfilePlaceholder('Help and support')}
+            onSignOut={signOut}
           />
         ) : null}
         <BottomNav activeTab={activeTab} onChange={setActiveTab} />
@@ -1772,10 +1841,26 @@ function ProfileTab({
   user,
   series,
   onOpenContinueWatching,
+  onOpenWatchHistory,
+  onOpenLikes,
+  onOpenWallet,
+  onOpenAlerts,
+  onEditProfile,
+  onOpenSettings,
+  onOpenHelp,
+  onSignOut,
 }: {
   user: AuthUser | null;
   series: Drama[];
   onOpenContinueWatching: () => void;
+  onOpenWatchHistory: () => void;
+  onOpenLikes: () => void;
+  onOpenWallet: () => void;
+  onOpenAlerts: () => void;
+  onEditProfile: () => void;
+  onOpenSettings: () => void;
+  onOpenHelp: () => void;
+  onSignOut: () => void;
 }) {
   const profileName = user?.name || 'AfroReel Viewer';
   const profileEmail = user?.email || 'Signed-in account';
@@ -1792,7 +1877,7 @@ function ProfileTab({
         </View>
         <Text style={styles.profileName}>{profileName}</Text>
         <Text style={styles.profileEmail}>{profileEmail}</Text>
-        <Pressable style={styles.profileEditButton}>
+        <Pressable style={styles.profileEditButton} onPress={onEditProfile}>
           <Text style={styles.profileEditText}>Edit profile</Text>
         </Pressable>
       </LinearGradient>
@@ -1807,18 +1892,19 @@ function ProfileTab({
 
       <ProfileSection title="Your activity">
         <ProfileRow mark="W" label="Continue watching" description="Resume your latest episodes" onPress={onOpenContinueWatching} />
-        <ProfileRow mark="H" label="Watch history" description="Stories you have played" />
-        <ProfileRow mark="P" label="Coin purchases" description="Receipts and transaction history" />
+        <ProfileRow mark="H" label="Watch history" description="Stories you have played" onPress={onOpenWatchHistory} />
+        <ProfileRow mark="F" label="Likes" description="Episodes you reacted to" onPress={onOpenLikes} />
+        <ProfileRow mark="P" label="Coin purchases" description="Receipts and transaction history" onPress={onOpenWallet} />
       </ProfileSection>
 
       <ProfileSection title="Preferences">
-        <ProfileRow mark="N" label="Notifications" description="New episodes and reward alerts" />
-        <ProfileRow mark="S" label="Settings" description="Playback, privacy, and account" />
-        <ProfileRow mark="?" label="Help and support" description="Get answers or contact us" />
+        <ProfileRow mark="N" label="Notifications" description="New episodes and reward alerts" onPress={onOpenAlerts} />
+        <ProfileRow mark="S" label="Settings" description="Playback, privacy, and account" onPress={onOpenSettings} />
+        <ProfileRow mark="?" label="Help and support" description="Get answers or contact us" onPress={onOpenHelp} />
       </ProfileSection>
 
       <View style={styles.profileLogoutArea}>
-        <Pressable style={styles.profileLogoutButton}>
+        <Pressable style={styles.profileLogoutButton} onPress={onSignOut}>
           <Text style={styles.profileLogoutText}>Log out</Text>
         </Pressable>
         <Text style={styles.profileVersion}>AfroReel version 1.0.0</Text>
@@ -1867,6 +1953,151 @@ function ProfileRow({
       </View>
       <Ionicons name="chevron-forward" size={18} color={Colors.textDim} />
     </Pressable>
+  );
+}
+
+function ProfileActivityScreen({
+  title,
+  eyebrow,
+  intro,
+  endpoint,
+  emptyTitle,
+  emptyBody,
+  actionLabel,
+  onBack,
+  onOpenItem,
+}: {
+  title: string;
+  eyebrow: string;
+  intro: string;
+  endpoint: string;
+  emptyTitle: string;
+  emptyBody: string;
+  actionLabel: string;
+  onBack: () => void;
+  onOpenItem: (series: Drama) => void;
+}) {
+  const [items, setItems] = useState<ApiProfileEpisode[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadItems = useCallback(async () => {
+    const payload = await fetchJson<{ items: ApiProfileEpisode[] }>(endpoint);
+    return payload.items;
+  }, [endpoint]);
+
+  const refreshItems = useCallback(async () => {
+    setIsRefreshing(true);
+
+    try {
+      setItems(await loadItems());
+      setError('');
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not load this list.');
+      setItems([]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadItems]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialItems() {
+      try {
+        const nextItems = await loadItems();
+
+        if (isMounted) {
+          setItems(nextItems);
+          setError('');
+        }
+      } catch (nextError) {
+        if (isMounted) {
+          setError(nextError instanceof Error ? nextError.message : 'Could not load this list.');
+          setItems([]);
+        }
+      }
+    }
+
+    void loadInitialItems();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [loadItems]);
+
+  return (
+    <View style={styles.continueScreen}>
+      <SafeAreaView>
+        <View style={styles.continueHeader}>
+          <Pressable style={styles.iconButton} onPress={onBack} accessibilityLabel="Back">
+            <Ionicons name="chevron-back" size={22} color={Colors.text} />
+          </Pressable>
+          <View style={styles.continueHeaderCopy}>
+            <Text style={styles.eyebrow}>{eyebrow}</Text>
+            <Text style={styles.headerTitle}>{title}</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.continueContent}
+        refreshControl={
+          <RefreshControl refreshing={isRefreshing} onRefresh={refreshItems} tintColor={Colors.primary} />
+        }
+      >
+        <Text style={styles.continueIntro}>{intro}</Text>
+
+        {error ? <Text style={styles.walletHistoryState}>{error}</Text> : null}
+
+        {items.length > 0 ? items.map((item, index) => {
+          const drama = mapApiSeriesToDrama(item.series, index);
+          const activityDate = formatNotificationDate(item.activityAt);
+
+          return (
+            <Pressable
+              key={`${endpoint}-${item.episodeId}`}
+              style={styles.continueCard}
+              onPress={() => onOpenItem(drama)}
+            >
+              <View style={styles.continueArtwork}>
+                <PosterVisual drama={drama} isHero />
+                <LinearGradient colors={['transparent', Colors.overlayHeavy]} style={StyleSheet.absoluteFill} />
+                <View style={styles.continueArtworkCopy}>
+                  <Text style={styles.continueCardTitle}>{drama.title}</Text>
+                  <Text style={styles.continueCardMeta}>
+                    Episode {item.episodeNumber}: {item.episodeTitle}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.continueCardFooter}>
+                <View style={styles.continueCardFooterCopy}>
+                  <Text style={styles.continueUpdated}>
+                    {item.progressSeconds > 0 ? `${formatPlaybackTime(item.progressSeconds)} watched` : `Added ${activityDate}`}
+                  </Text>
+                  <Text style={styles.profileActivityHook} numberOfLines={1}>
+                    {item.hook || drama.mood}
+                  </Text>
+                </View>
+                <View style={styles.continueResumeButton}>
+                  <Text style={styles.continueResumeText}>{actionLabel}</Text>
+                </View>
+              </View>
+            </Pressable>
+          );
+        }) : !error ? (
+          <View style={styles.discoverySpotlight}>
+            <LinearGradient colors={['#2b1d38', '#0b0b12']} style={StyleSheet.absoluteFill} />
+            <View style={styles.discoverySpotlightCopy}>
+              <Text style={styles.featuredPill}>PROFILE</Text>
+              <Text style={styles.discoveryTitle}>{emptyTitle}</Text>
+              <Text style={styles.discoveryBody}>{emptyBody}</Text>
+            </View>
+          </View>
+        ) : null}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1972,7 +2203,19 @@ function PlayerScreen({
   const [playbackError, setPlaybackError] = useState('');
   const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
   const [durationSeconds, setDurationSeconds] = useState(0);
-  const lastSavedProgressRef = useRef<Record<number, number>>({});
+  const [engagement, setEngagement] = useState<EpisodeEngagement>({
+    likeCount: 0,
+    commentCount: 0,
+    saveCount: 0,
+    hasLiked: false,
+    hasSaved: false,
+  });
+  const [comments, setComments] = useState<EpisodeComment[]>([]);
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentError, setCommentError] = useState('');
+  const [isPostingComment, setIsPostingComment] = useState(false);
+  const lastSavedProgressRef = useRef<Record<string, number>>({});
   const episode = remoteEpisodes[Math.min(activeEpisodeIndex, remoteEpisodes.length - 1)];
   const isLocked = Boolean(episode?.isLocked && !unlockedEpisodes.includes(episode.number));
   const videoPlayer = useVideoPlayer(playbackUrl ? { uri: playbackUrl } : null, (player) => {
@@ -2023,6 +2266,7 @@ function PlayerScreen({
         setRemoteEpisodes(
           episodePayload.episodes.map((item, index) => ({
             id: item.id,
+            databaseId: item.databaseId,
             seriesTitle: item.seriesTitle,
             number: index + 1,
             title: item.title,
@@ -2101,6 +2345,131 @@ function PlayerScreen({
       lastSavedProgressRef.current[episodeId] = lastSavedProgress;
     });
   }, [currentTimeSeconds, episode?.id, isLocked]);
+
+  useEffect(() => {
+    let isMounted = true;
+    setEngagement({
+      likeCount: 0,
+      commentCount: 0,
+      saveCount: 0,
+      hasLiked: false,
+      hasSaved: false,
+    });
+    setComments([]);
+    setCommentDraft('');
+    setCommentError('');
+    setIsCommentsOpen(false);
+
+    async function loadEngagement() {
+      if (!episode?.id) {
+        return;
+      }
+
+      try {
+        const payload = await fetchJson<{ engagement: EpisodeEngagement }>(`/api/episodes/${episode.id}/engagement`);
+        if (isMounted) {
+          setEngagement(payload.engagement);
+        }
+      } catch {
+        // Keep the action buttons usable even if counts cannot be loaded.
+      }
+    }
+
+    void loadEngagement();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [episode?.id]);
+
+  const loadComments = useCallback(async () => {
+    if (!episode?.id) {
+      return;
+    }
+
+    try {
+      const payload = await fetchJson<{ comments: EpisodeComment[] }>(`/api/episodes/${episode.id}/comments`);
+      setComments(payload.comments);
+      setCommentError('');
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : 'Could not load comments.');
+    }
+  }, [episode?.id]);
+
+  const toggleReaction = useCallback(async (type: 'like' | 'save') => {
+    if (!episode?.id) {
+      return;
+    }
+
+    const field = type === 'like' ? 'hasLiked' : 'hasSaved';
+    const countField = type === 'like' ? 'likeCount' : 'saveCount';
+    const nextIsActive = !engagement[field];
+    const previousEngagement = engagement;
+
+    setEngagement((currentEngagement) => ({
+      ...currentEngagement,
+      [field]: nextIsActive,
+      [countField]: Math.max(0, currentEngagement[countField] + (nextIsActive ? 1 : -1)),
+    }));
+
+    try {
+      const payload = await fetchJson<{ engagement: EpisodeEngagement }>(`/api/episodes/${episode.id}/reactions`, {
+        method: 'POST',
+        body: JSON.stringify({ type, isActive: nextIsActive }),
+      });
+      setEngagement(payload.engagement);
+    } catch {
+      setEngagement(previousEngagement);
+    }
+  }, [engagement, episode?.id]);
+
+  const openComments = useCallback(() => {
+    setIsCommentsOpen(true);
+    void loadComments();
+  }, [loadComments]);
+
+  const postComment = useCallback(async () => {
+    if (!episode?.id || isPostingComment) {
+      return;
+    }
+
+    const body = commentDraft.trim();
+    if (!body) {
+      setCommentError('Write a comment first.');
+      return;
+    }
+
+    setIsPostingComment(true);
+    setCommentError('');
+
+    try {
+      const payload = await fetchJson<{
+        comment: EpisodeComment;
+        engagement: EpisodeEngagement;
+      }>(`/api/episodes/${episode.id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      });
+      setComments((currentComments) => [payload.comment, ...currentComments]);
+      setEngagement(payload.engagement);
+      setCommentDraft('');
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : 'Could not post comment.');
+    } finally {
+      setIsPostingComment(false);
+    }
+  }, [commentDraft, episode?.id, isPostingComment]);
+
+  const shareEpisode = useCallback(async () => {
+    if (!episode) {
+      return;
+    }
+
+    await Share.share({
+      message: `Watch ${episode.seriesTitle ?? remoteSeriesTitle} Episode ${episode.number}: ${episode.title} on AfroReel.`,
+      title: `${episode.seriesTitle ?? remoteSeriesTitle} on AfroReel`,
+    });
+  }, [episode, remoteSeriesTitle]);
 
   const moveEpisode = useCallback(
     (direction: 'next' | 'previous') => {
@@ -2244,10 +2613,34 @@ function PlayerScreen({
             </View>
 
             <View style={styles.playerActions}>
-              <PlayerAction label="Like" mark="L" />
-              <PlayerAction label="Comment" mark="C" />
-              <PlayerAction label="Share" mark="S" />
-              <PlayerAction label="Saved" mark="+" />
+              <PlayerAction
+                label={formatCompactCount(engagement.likeCount)}
+                icon="heart"
+                isActive={engagement.hasLiked}
+                activeColor={Colors.danger}
+                accessibilityLabel="Like episode"
+                onPress={() => toggleReaction('like')}
+              />
+              <PlayerAction
+                label={formatCompactCount(engagement.commentCount)}
+                icon="chatbubble"
+                accessibilityLabel="Open comments"
+                onPress={openComments}
+              />
+              <PlayerAction
+                label="Share"
+                icon="arrow-redo"
+                accessibilityLabel="Share episode"
+                onPress={shareEpisode}
+              />
+              <PlayerAction
+                label={formatCompactCount(engagement.saveCount)}
+                icon="bookmark"
+                isActive={engagement.hasSaved}
+                activeColor={Colors.primary}
+                accessibilityLabel="Save episode"
+                onPress={() => toggleReaction('save')}
+              />
             </View>
 
             <View style={styles.playerProgressArea}>
@@ -2285,6 +2678,19 @@ function PlayerScreen({
           coinCost={episode.coinCost ?? 5}
         />
       ) : null}
+
+      {isCommentsOpen ? (
+        <CommentsSheet
+          comments={comments}
+          commentDraft={commentDraft}
+          commentError={commentError}
+          isPostingComment={isPostingComment}
+          onChangeDraft={setCommentDraft}
+          onClose={() => setIsCommentsOpen(false)}
+          onPost={postComment}
+          onRefresh={loadComments}
+        />
+      ) : null}
     </View>
   );
 }
@@ -2314,6 +2720,7 @@ function SeriesDetailScreen({
 
     return payload.episodes.map((item, index) => ({
       id: item.id,
+      databaseId: item.databaseId,
       seriesTitle: item.seriesTitle,
       number: index + 1,
       title: item.title,
@@ -2463,14 +2870,114 @@ function EpisodeRow({ episode, onPress }: { episode: PlayerEpisode; onPress: () 
   );
 }
 
-function PlayerAction({ label, mark }: { label: string; mark: string }) {
+function PlayerAction({
+  label,
+  icon,
+  isActive = false,
+  activeColor = Colors.primary,
+  accessibilityLabel,
+  onPress,
+}: {
+  label: string;
+  icon: IconName;
+  isActive?: boolean;
+  activeColor?: string;
+  accessibilityLabel: string;
+  onPress: () => void;
+}) {
   return (
-    <Pressable style={styles.playerAction}>
-      <View style={styles.playerActionIcon}>
-        <Ionicons name={getIconForMark(mark)} size={20} color={Colors.text} />
+    <Pressable style={styles.playerAction} onPress={onPress} accessibilityLabel={accessibilityLabel}>
+      <View style={[styles.playerActionIcon, isActive && styles.playerActionIconActive]}>
+        <Ionicons name={icon} size={20} color={isActive ? activeColor : Colors.text} />
       </View>
-      <Text style={styles.playerActionLabel}>{label}</Text>
+      <Text style={[styles.playerActionLabel, isActive && styles.playerActionLabelActive]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function CommentsSheet({
+  comments,
+  commentDraft,
+  commentError,
+  isPostingComment,
+  onChangeDraft,
+  onClose,
+  onPost,
+  onRefresh,
+}: {
+  comments: EpisodeComment[];
+  commentDraft: string;
+  commentError: string;
+  isPostingComment: boolean;
+  onChangeDraft: (value: string) => void;
+  onClose: () => void;
+  onPost: () => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <View style={styles.commentsOverlay}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={styles.commentsSheet}>
+        <View style={styles.unlockHandle} />
+        <View style={styles.commentsHeader}>
+          <View>
+            <Text style={styles.unlockEyebrow}>REACTIONS</Text>
+            <Text style={styles.commentsTitle}>Comments</Text>
+          </View>
+          <Pressable style={styles.playerRoundButton} onPress={onClose} accessibilityLabel="Close comments">
+            <Ionicons name="close" size={20} color={Colors.text} />
+          </Pressable>
+        </View>
+
+        <ScrollView style={styles.commentsList} contentContainerStyle={styles.commentsListContent}>
+          {comments.length > 0 ? comments.map((comment) => (
+            <View key={comment.id} style={styles.commentRow}>
+              <View style={styles.commentAvatar}>
+                <Text style={styles.commentAvatarText}>{comment.authorName.charAt(0).toUpperCase()}</Text>
+              </View>
+              <View style={styles.commentCopy}>
+                <Text style={styles.commentAuthor}>{comment.authorName}</Text>
+                <Text style={styles.commentBody}>{comment.body}</Text>
+                <Text style={styles.commentTime}>{formatNotificationDate(comment.createdAt)}</Text>
+              </View>
+            </View>
+          )) : (
+            <View style={styles.commentsEmpty}>
+              <Text style={styles.commentsEmptyTitle}>No comments yet</Text>
+              <Text style={styles.commentsEmptyBody}>Start the conversation on this episode.</Text>
+            </View>
+          )}
+        </ScrollView>
+
+        {commentError ? <Text style={styles.authError}>{commentError}</Text> : null}
+
+        <View style={styles.commentComposer}>
+          <TextInput
+            value={commentDraft}
+            onChangeText={onChangeDraft}
+            placeholder="Add a comment"
+            placeholderTextColor={Colors.textDim}
+            selectionColor={Colors.primary}
+            style={styles.commentInput}
+            maxLength={500}
+            multiline
+          />
+          <Pressable
+            style={[styles.commentPostButton, isPostingComment && styles.authContinueButtonDisabled]}
+            onPress={onPost}
+            disabled={isPostingComment}
+            accessibilityLabel="Post comment"
+          >
+            <Ionicons name={isPostingComment ? 'hourglass' : 'send'} size={18} color={Colors.textOnPrimary} />
+          </Pressable>
+        </View>
+
+        <Pressable style={styles.commentsRefreshButton} onPress={onRefresh}>
+          <Ionicons name="refresh" size={14} color={Colors.primary} />
+          <Text style={styles.commentsRefreshText}>Refresh</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -3808,6 +4315,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  profileActivityHook: {
+    color: Colors.textDim,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: Spacing[1],
+  },
   continueProgressTrack: {
     backgroundColor: Colors.border,
     borderRadius: Radius.full,
@@ -3990,6 +4503,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 48,
   },
+  playerActionIconActive: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderColor: 'rgba(255,255,255,0.42)',
+  },
   playerActionIconText: {
     color: Colors.white,
     fontSize: 14,
@@ -3999,6 +4516,9 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.72)',
     fontSize: 10,
     fontWeight: '800',
+  },
+  playerActionLabelActive: {
+    color: Colors.white,
   },
   playerProgressArea: {
     bottom: 22,
@@ -4178,6 +4698,139 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: 13,
     fontWeight: '700',
+  },
+  commentsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.54)',
+    justifyContent: 'flex-end',
+  },
+  commentsSheet: {
+    backgroundColor: Colors.backgroundSurface,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    maxHeight: '76%',
+    paddingBottom: SafeArea.bottom + Spacing[5],
+    paddingHorizontal: Spacing[5],
+    paddingTop: Spacing[3],
+  },
+  commentsHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: Spacing[4],
+  },
+  commentsTitle: {
+    color: Colors.text,
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  commentsList: {
+    maxHeight: 320,
+  },
+  commentsListContent: {
+    gap: Spacing[4],
+    paddingBottom: Spacing[4],
+  },
+  commentRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: Spacing[3],
+  },
+  commentAvatar: {
+    alignItems: 'center',
+    backgroundColor: Colors.primaryBg,
+    borderRadius: Radius.full,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  commentAvatarText: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  commentCopy: {
+    flex: 1,
+    gap: Spacing[1],
+  },
+  commentAuthor: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  commentBody: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  commentTime: {
+    color: Colors.textDim,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  commentsEmpty: {
+    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing[5],
+  },
+  commentsEmptyTitle: {
+    color: Colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  commentsEmptyBody: {
+    color: Colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: Spacing[2],
+    textAlign: 'center',
+  },
+  commentComposer: {
+    alignItems: 'flex-end',
+    backgroundColor: Colors.backgroundCard,
+    borderColor: Colors.border,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: Spacing[2],
+    marginTop: Spacing[3],
+    padding: Spacing[2],
+  },
+  commentInput: {
+    color: Colors.text,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    maxHeight: 96,
+    minHeight: 42,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[3],
+  },
+  commentPostButton: {
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.full,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  commentsRefreshButton: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    gap: Spacing[1],
+    marginTop: Spacing[3],
+  },
+  commentsRefreshText: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
   },
   unlockLater: {
     alignItems: 'center',

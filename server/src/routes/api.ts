@@ -3,13 +3,16 @@ import { attemptMobileLogin, createMobileUser, requireMobileUser } from "../auth
 import { config } from "../config";
 import {
   addEpisodeComment,
+  getEpisodeDatabaseId,
   getEpisodeEngagement,
   getEpisodeForPlayback,
   InsufficientCoinsError,
+  listLikedEpisodes,
   listEpisodeComments,
   listEpisodesForSeries,
   listSeries,
   listWalletTransactions,
+  listWatchHistory,
   saveProgress,
   setEpisodeReaction,
   topUpMobileUserWallet,
@@ -97,7 +100,8 @@ apiRouter.get("/series/:seriesId/episodes", async (req, res, next) => {
 
     res.json({
       episodes: episodes.map((episode) => ({
-        id: episode.id,
+        id: episode.episode_id,
+        databaseId: episode.id,
         seriesId: episode.series_id,
         seriesTitle: episode.series_title,
         episodeNumber: episode.episode_number,
@@ -168,9 +172,34 @@ apiRouter.get("/wallet/transactions", async (req, res, next) => {
   }
 });
 
+apiRouter.get("/profile/watch-history", async (req, res, next) => {
+  try {
+    res.json({
+      items: (await listWatchHistory(mobileUserId(req))).map((item) => profileEpisodeResponse(req, item)),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get("/profile/likes", async (req, res, next) => {
+  try {
+    res.json({
+      items: (await listLikedEpisodes(mobileUserId(req))).map((item) => profileEpisodeResponse(req, item)),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 apiRouter.post("/episodes/:episodeId/unlock", async (req, res, next) => {
   try {
-    const episodeId = Number.parseInt(req.params.episodeId, 10);
+    const publicEpisodeId = req.params.episodeId;
+    const episodeId = await getEpisodeDatabaseId(publicEpisodeId);
+    if (!episodeId) {
+      res.status(404).json({ error: "Episode is not available." });
+      return;
+    }
     const userId = mobileUserId(req);
     const method = req.body?.method === "ad" ? "ad" : "coins";
     const unlockResult = await unlockEpisode(episodeId, userId, method);
@@ -180,7 +209,7 @@ apiRouter.post("/episodes/:episodeId/unlock", async (req, res, next) => {
     };
     res.json({
       success: true,
-      episodeId,
+      episodeId: publicEpisodeId,
       ...unlockResult,
       user: mobileUserResponse(req.mobileUser),
     });
@@ -196,7 +225,12 @@ apiRouter.post("/episodes/:episodeId/unlock", async (req, res, next) => {
 
 apiRouter.post("/episodes/:episodeId/playback", async (req, res, next) => {
   try {
-    const episodeId = Number.parseInt(req.params.episodeId, 10);
+    const publicEpisodeId = req.params.episodeId;
+    const episodeId = await getEpisodeDatabaseId(publicEpisodeId);
+    if (!episodeId) {
+      res.status(404).json({ error: "Episode is not available." });
+      return;
+    }
     const userId = mobileUserId(req);
     const episode = await getEpisodeForPlayback(episodeId, userId);
 
@@ -221,7 +255,7 @@ apiRouter.post("/episodes/:episodeId/playback", async (req, res, next) => {
       : await createPlaybackUrl(episode.cloudflare_video_uid);
 
     res.json({
-      episodeId,
+      episodeId: episode.episode_id,
       playbackUrl,
       progressSeconds: episode.progress_seconds ?? 0,
       expiresInSeconds: 3600,
@@ -233,7 +267,11 @@ apiRouter.post("/episodes/:episodeId/playback", async (req, res, next) => {
 
 apiRouter.post("/episodes/:episodeId/progress", async (req, res, next) => {
   try {
-    const episodeId = Number.parseInt(req.params.episodeId, 10);
+    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    if (!episodeId) {
+      res.status(404).json({ error: "Episode is not available." });
+      return;
+    }
     const progressSeconds = Number.parseInt(String(req.body?.progressSeconds ?? "0"), 10);
     await saveProgress(episodeId, mobileUserId(req), Number.isNaN(progressSeconds) ? 0 : progressSeconds);
     res.json({ success: true });
@@ -244,7 +282,11 @@ apiRouter.post("/episodes/:episodeId/progress", async (req, res, next) => {
 
 apiRouter.get("/episodes/:episodeId/engagement", async (req, res, next) => {
   try {
-    const episodeId = Number.parseInt(req.params.episodeId, 10);
+    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    if (!episodeId) {
+      res.status(404).json({ error: "Episode is not available." });
+      return;
+    }
     res.json({ engagement: await getEpisodeEngagement(episodeId, mobileUserId(req)) });
   } catch (error) {
     next(error);
@@ -253,7 +295,11 @@ apiRouter.get("/episodes/:episodeId/engagement", async (req, res, next) => {
 
 apiRouter.post("/episodes/:episodeId/reactions", async (req, res, next) => {
   try {
-    const episodeId = Number.parseInt(req.params.episodeId, 10);
+    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    if (!episodeId) {
+      res.status(404).json({ error: "Episode is not available." });
+      return;
+    }
     const type = req.body?.type === "save" ? "save" : "like";
     const isActive = Boolean(req.body?.isActive);
 
@@ -268,7 +314,11 @@ apiRouter.post("/episodes/:episodeId/reactions", async (req, res, next) => {
 
 apiRouter.get("/episodes/:episodeId/comments", async (req, res, next) => {
   try {
-    const episodeId = Number.parseInt(req.params.episodeId, 10);
+    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    if (!episodeId) {
+      res.status(404).json({ error: "Episode is not available." });
+      return;
+    }
     res.json({
       comments: (await listEpisodeComments(episodeId)).map(commentResponse),
     });
@@ -279,7 +329,11 @@ apiRouter.get("/episodes/:episodeId/comments", async (req, res, next) => {
 
 apiRouter.post("/episodes/:episodeId/comments", async (req, res, next) => {
   try {
-    const episodeId = Number.parseInt(req.params.episodeId, 10);
+    const episodeId = await getEpisodeDatabaseId(req.params.episodeId);
+    if (!episodeId) {
+      res.status(404).json({ error: "Episode is not available." });
+      return;
+    }
     const body = stringBody(req.body?.body);
     const comment = await addEpisodeComment(episodeId, mobileUserId(req), body);
     const engagement = await getEpisodeEngagement(episodeId, mobileUserId(req));
@@ -344,6 +398,52 @@ function commentResponse(comment: {
     authorName: comment.authorName,
     body: comment.body,
     createdAt: comment.createdAt,
+  };
+}
+
+function profileEpisodeResponse(req: Request, item: {
+  episodeId: string;
+  episodeNumber: number;
+  episodeTitle: string;
+  hook: string | null;
+  progressSeconds: number;
+  activityAt: Date | string;
+  series: {
+    id: number;
+    series_id: string;
+    title: string;
+    slug: string;
+    synopsis: string | null;
+    genres: string | null;
+    poster_url: string | null;
+    episode_count: number;
+    free_episode_count: number;
+    latest_episode_at: Date | string | null;
+    progress_seconds?: number | null;
+    status: string;
+  };
+}) {
+  return {
+    episodeId: item.episodeId,
+    episodeNumber: item.episodeNumber,
+    episodeTitle: item.episodeTitle,
+    hook: item.hook,
+    progressSeconds: item.progressSeconds,
+    activityAt: item.activityAt,
+    series: {
+      id: item.series.series_id,
+      databaseId: item.series.id,
+      title: item.series.title,
+      slug: item.series.slug,
+      synopsis: item.series.synopsis,
+      genres: splitGenres(item.series.genres),
+      posterUrl: absolutize(req, item.series.poster_url),
+      episodeCount: Number(item.series.episode_count ?? 0),
+      freeEpisodeCount: Number(item.series.free_episode_count ?? 0),
+      latestEpisodeAt: item.series.latest_episode_at,
+      progressSeconds: Number(item.series.progress_seconds ?? item.progressSeconds ?? 0),
+      status: item.series.status,
+    },
   };
 }
 
