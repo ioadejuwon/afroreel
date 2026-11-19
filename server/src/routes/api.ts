@@ -3,12 +3,16 @@ import {
   attemptMobileLogin,
   changeMobilePassword,
   createMobileUser,
+  revokeMobileRefreshToken,
+  rotateMobileRefreshToken,
   requireMobileUser,
   updateMobileUserProfile,
 } from "../auth";
-import { config } from "../config";
+import { allowLocalMedia, config, isProduction } from "../config";
 import {
   addEpisodeComment,
+  blockUser,
+  deleteOwnComment,
   getEpisodeDatabaseId,
   getEpisodeEngagement,
   getEpisodeForPlayback,
@@ -21,11 +25,15 @@ import {
   listWalletTransactions,
   listWatchHistory,
   saveProgress,
+  reportComment,
   setEpisodeReaction,
   topUpMobileUserWallet,
   unlockEpisode,
+  type EpisodeRow,
 } from "../content";
-import { createPlaybackUrl } from "../cloudflare";
+import { createPlaybackUrl, createThumbnailUrl, isStreamVideoUid, MediaError, STREAM_PLAYBACK_TTL_SECONDS } from "../cloudflare";
+import { coinProducts } from "../commerce";
+import { legacyMediaUrl, posterUrl } from "../media";
 
 export const apiRouter = Router();
 const walletTopUpCoins = new Set([100, 300, 1000]);
@@ -43,7 +51,7 @@ apiRouter.post("/auth/signup", async (req, res, next) => {
     }
 
     const result = await createMobileUser({ email, password, name, username });
-    res.status(201).json({ token: result.token, user: mobileUserResponse(result.user) });
+    res.status(201).json({ token: result.token, refreshToken: result.refreshToken, user: mobileUserResponse(result.user) });
   } catch (error) {
     if (isDuplicateEmailError(error)) {
       res.status(409).json({ error: "That email or username is already taken." });
@@ -65,7 +73,7 @@ apiRouter.post("/auth/signin", async (req, res, next) => {
       return;
     }
 
-    res.json({ token: result.token, user: mobileUserResponse(result.user) });
+    res.json({ token: result.token, refreshToken: result.refreshToken, user: mobileUserResponse(result.user) });
   } catch (error) {
     next(error);
   }
@@ -73,6 +81,32 @@ apiRouter.post("/auth/signin", async (req, res, next) => {
 
 apiRouter.get("/auth/me", requireMobileUser, (req, res) => {
   res.json({ user: mobileUserResponse(req.mobileUser) });
+});
+
+apiRouter.post("/auth/refresh", async (req, res, next) => {
+  try {
+    const result = await rotateMobileRefreshToken(stringBody(req.body?.refreshToken));
+    if (!result) {
+      res.status(401).json({ error: { code: "INVALID_REFRESH_TOKEN", message: "Sign in again to continue." } });
+      return;
+    }
+    res.json({ token: result.token, refreshToken: result.refreshToken, user: mobileUserResponse(result.user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post("/auth/logout", async (req, res, next) => {
+  try {
+    await revokeMobileRefreshToken(stringBody(req.body?.refreshToken));
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get("/store/products", (_req, res) => {
+  res.json({ products: coinProducts });
 });
 
 apiRouter.use(requireMobileUser);
@@ -134,7 +168,8 @@ apiRouter.get("/series", async (req, res, next) => {
         slug: item.slug,
         synopsis: item.synopsis,
         genres: splitGenres(item.genres),
-        posterUrl: absolutize(req, item.poster_url),
+        posterUrl: absolutize(req, posterUrl(item, "poster-detail")),
+        posterCardUrl: absolutize(req, posterUrl(item, "poster-card")),
         episodeCount: Number(item.episode_count ?? 0),
         freeEpisodeCount: Number(item.free_episode_count ?? 0),
         latestEpisodeAt: item.latest_episode_at,
@@ -153,6 +188,7 @@ apiRouter.get("/series/:seriesId/episodes", async (req, res, next) => {
     const userId = mobileUserId(req);
     const episodes = await listEpisodesForSeries(seriesId, false, userId);
 
+    res.set("Cache-Control", "private, no-store");
     res.json({
       episodes: episodes.map((episode) => ({
         id: episode.episode_id,
@@ -162,7 +198,7 @@ apiRouter.get("/series/:seriesId/episodes", async (req, res, next) => {
         episodeNumber: episode.episode_number,
         title: episode.title,
         hook: episode.hook,
-        thumbnailUrl: episode.thumbnail_url,
+        thumbnailUrl: episodeThumbnailUrl(req, episode),
         durationSeconds: episode.duration_seconds,
         isFree: Boolean(episode.is_free),
         coinCost: episode.coin_cost,
@@ -179,6 +215,12 @@ apiRouter.get("/series/:seriesId/episodes", async (req, res, next) => {
 
 apiRouter.post("/wallet/topup", async (req, res, next) => {
   try {
+    if (isProduction) {
+      res.status(410).json({
+        error: { code: "STORE_VERIFICATION_REQUIRED", message: "Use a verified App Store or Google Play purchase." },
+      });
+      return;
+    }
     const coins = Number.parseInt(String(req.body?.coins ?? "0"), 10);
 
     if (!walletTopUpCoins.has(coins)) {
@@ -256,7 +298,13 @@ apiRouter.post("/episodes/:episodeId/unlock", async (req, res, next) => {
       return;
     }
     const userId = mobileUserId(req);
-    const method = req.body?.method === "ad" ? "ad" : "coins";
+    if (req.body?.method === "ad") {
+      res.status(403).json({
+        error: { code: "VERIFIED_REWARD_REQUIRED", message: "Complete a verified rewarded ad to unlock this episode." },
+      });
+      return;
+    }
+    const method = "coins" as const;
     const unlockResult = await unlockEpisode(episodeId, userId, method);
     req.mobileUser = {
       ...req.mobileUser!,
@@ -300,20 +348,23 @@ apiRouter.post("/episodes/:episodeId/playback", async (req, res, next) => {
       return;
     }
 
-    if (!episode.cloudflare_video_uid || !episode.cloudflare_ready) {
+    const uid = episode.cloudflare_video_uid;
+    const localUrl = allowLocalMedia && uid?.startsWith("local:")
+      ? legacyMediaUrl(uid.slice("local:".length))
+      : null;
+    if (!episode.cloudflare_ready || (!localUrl && !isStreamVideoUid(uid))) {
       res.status(409).json({ error: "Episode video is not ready." });
       return;
     }
 
-    const playbackUrl = episode.cloudflare_video_uid.startsWith("local:")
-      ? absolutize(req, episode.cloudflare_video_uid.replace(/^local:/, ""))
-      : await createPlaybackUrl(episode.cloudflare_video_uid);
-
+    const playbackUrl = isStreamVideoUid(uid) ? createPlaybackUrl(uid) : absolutize(req, localUrl);
+    res.set("Cache-Control", "private, no-store");
     res.json({
       episodeId: episode.episode_id,
       playbackUrl,
+      contentType: localUrl ? "auto" : "hls",
       progressSeconds: episode.progress_seconds ?? 0,
-      expiresInSeconds: 3600,
+      expiresInSeconds: STREAM_PLAYBACK_TTL_SECONDS,
     });
   } catch (error) {
     next(error);
@@ -375,8 +426,41 @@ apiRouter.get("/episodes/:episodeId/comments", async (req, res, next) => {
       return;
     }
     res.json({
-      comments: (await listEpisodeComments(episodeId)).map(commentResponse),
+      comments: (await listEpisodeComments(episodeId, mobileUserId(req))).map(commentResponse),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post("/comments/:commentId/report", async (req, res, next) => {
+  try {
+    const commentId = Number.parseInt(String(req.params.commentId), 10);
+    const reason = stringBody(req.body?.reason);
+    if (!commentId || !reason) {
+      res.status(400).json({ error: { code: "INVALID_REPORT", message: "Choose a report reason." } });
+      return;
+    }
+    await reportComment(commentId, mobileUserId(req), reason, stringBody(req.body?.details));
+    res.status(201).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post("/users/:userId/block", async (req, res, next) => {
+  try {
+    await blockUser(mobileUserId(req), String(req.params.userId));
+    res.status(201).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.delete("/comments/:commentId", async (req, res, next) => {
+  try {
+    const deleted = await deleteOwnComment(Number.parseInt(String(req.params.commentId), 10), mobileUserId(req));
+    res.status(deleted ? 204 : 404).end();
   } catch (error) {
     next(error);
   }
@@ -422,6 +506,22 @@ function absolutize(req: Request, value: string | null): string | null {
 
   const baseUrl = config.publicBaseUrl || `${req.protocol}://${req.get("host")}`;
   return `${baseUrl}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
+function episodeThumbnailUrl(req: Request, episode: EpisodeRow): string | null {
+  if ((!episode.is_free && !episode.is_unlocked) || !episode.cloudflare_ready) return null;
+  const uid = episode.cloudflare_video_uid;
+  if (!isStreamVideoUid(uid)) {
+    return allowLocalMedia ? absolutize(req, legacyMediaUrl(episode.thumbnail_url)) : null;
+  }
+
+  try {
+    const frameTime = episode.cloudflare_thumbnail_time_ms ?? (episode.duration_seconds ?? 0) * 100;
+    return createThumbnailUrl(uid, frameTime);
+  } catch (error) {
+    if (!isProduction && error instanceof MediaError && error.status === 503) return null;
+    throw error;
+  }
 }
 
 function stringBody(value: unknown): string {
@@ -475,6 +575,7 @@ function profileEpisodeResponse(req: Request, item: {
     synopsis: string | null;
     genres: string | null;
     poster_url: string | null;
+    poster_image_id: string | null;
     episode_count: number;
     free_episode_count: number;
     latest_episode_at: Date | string | null;
@@ -496,7 +597,8 @@ function profileEpisodeResponse(req: Request, item: {
       slug: item.series.slug,
       synopsis: item.series.synopsis,
       genres: splitGenres(item.series.genres),
-      posterUrl: absolutize(req, item.series.poster_url),
+      posterUrl: absolutize(req, posterUrl(item.series, "poster-detail")),
+      posterCardUrl: absolutize(req, posterUrl(item.series, "poster-card")),
       episodeCount: Number(item.series.episode_count ?? 0),
       freeEpisodeCount: Number(item.series.free_episode_count ?? 0),
       latestEpisodeAt: item.series.latest_episode_at,

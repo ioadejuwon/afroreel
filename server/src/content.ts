@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { type RowDataPacket, type ResultSetHeader } from "mysql2";
+import { MediaError, type StreamVideo } from "./cloudflare";
+import { allowLocalMedia } from "./config";
 import { pool } from "./db";
 
 export type SeriesStatus = "draft" | "live";
@@ -13,6 +15,7 @@ export type SeriesRow = RowDataPacket & {
   synopsis: string | null;
   genres: string | null;
   poster_url: string | null;
+  poster_image_id: string | null;
   status: SeriesStatus;
   episode_count: number;
   free_episode_count: number;
@@ -67,6 +70,7 @@ type ProfileEpisodeRow = RowDataPacket & {
   synopsis: string | null;
   genres: string | null;
   poster_url: string | null;
+  poster_image_id: string | null;
   episode_count: number | string;
   free_episode_count: number | string;
   latest_episode_at: Date | string | null;
@@ -131,6 +135,7 @@ export type ProfileSeries = {
   synopsis: string | null;
   genres: string | null;
   poster_url: string | null;
+  poster_image_id: string | null;
   status: SeriesStatus;
   episode_count: number;
   free_episode_count: number;
@@ -183,11 +188,20 @@ export type EpisodeRow = RowDataPacket & {
   status: EpisodeStatus;
   cloudflare_video_uid: string | null;
   cloudflare_ready: 0 | 1;
+  cloudflare_pending_uid: string | null;
+  cloudflare_upload_state: "uploading" | "processing" | "failed" | null;
+  cloudflare_upload_error: string | null;
+  cloudflare_thumbnail_time_ms: number | null;
   duration_seconds: number | null;
   thumbnail_url: string | null;
   is_unlocked?: 0 | 1;
   progress_seconds?: number | null;
 };
+
+export type EpisodeMedia = RowDataPacket & Pick<EpisodeRow,
+  "id" | "status" | "cloudflare_video_uid" | "cloudflare_ready" | "cloudflare_pending_uid" |
+  "cloudflare_upload_state" | "cloudflare_upload_error"
+>;
 
 type DashboardSummaryRow = RowDataPacket & {
   series_total: number | string;
@@ -218,6 +232,7 @@ type DashboardQueueRow = RowDataPacket & {
   release_date: Date | string | null;
   cloudflare_video_uid: string | null;
   cloudflare_ready: 0 | 1;
+  cloudflare_upload_state: EpisodeRow["cloudflare_upload_state"];
 };
 
 type UserSummaryRow = RowDataPacket & {
@@ -592,7 +607,13 @@ function dueLabel(value: Date | string | null): string {
 }
 
 function episodeStatusDisplay(row: DashboardQueueRow): { label: string; className: string } {
-  if (row.status === "processing") {
+  if (row.cloudflare_upload_state === "failed") {
+    return { label: "Upload failed", className: "blocked" };
+  }
+  if (row.cloudflare_upload_state === "uploading") {
+    return { label: "Uploading", className: "review" };
+  }
+  if (row.cloudflare_upload_state === "processing" || row.status === "processing") {
     return { label: "Processing", className: "review" };
   }
   if (!row.cloudflare_video_uid) {
@@ -614,9 +635,9 @@ export async function getDashboardData(): Promise<DashboardData> {
         (SELECT COUNT(*) FROM episodes) AS episodes_total,
         (SELECT COUNT(*) FROM episodes WHERE status = 'live') AS live_episodes,
         (SELECT COUNT(*) FROM episodes WHERE status = 'draft') AS draft_episodes,
-        (SELECT COUNT(*) FROM episodes WHERE status = 'processing') AS processing_episodes,
+        (SELECT COUNT(*) FROM episodes WHERE status = 'processing' OR cloudflare_upload_state = 'processing') AS processing_episodes,
         (SELECT COUNT(*) FROM episodes WHERE cloudflare_ready = 1) AS ready_videos,
-        (SELECT COUNT(*) FROM episodes WHERE cloudflare_video_uid IS NULL) AS missing_videos,
+        (SELECT COUNT(*) FROM episodes WHERE cloudflare_video_uid IS NULL AND cloudflare_pending_uid IS NULL) AS missing_videos,
         (SELECT COUNT(DISTINCT user_id) FROM watch_progress) AS viewers_total,
         (SELECT COUNT(*) FROM episode_unlocks) AS unlocks_total,
         (SELECT COALESCE(SUM(progress_seconds), 0) FROM watch_progress) AS watch_seconds_total`,
@@ -630,12 +651,12 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   const [queueRows] = await pool.execute<DashboardQueueRow[]>(
     `SELECT e.id, s.title AS series_title, e.episode_number, e.title, e.status,
-            e.release_date, e.cloudflare_video_uid, e.cloudflare_ready
+            e.release_date, e.cloudflare_video_uid, e.cloudflare_ready, e.cloudflare_upload_state
        FROM episodes e
        INNER JOIN series s ON s.id = e.series_id
       ORDER BY
         CASE
-          WHEN e.status = 'processing' THEN 0
+          WHEN e.cloudflare_upload_state IS NOT NULL OR e.status = 'processing' THEN 0
           WHEN e.cloudflare_video_uid IS NULL THEN 1
           WHEN e.status = 'draft' THEN 2
           ELSE 3
@@ -837,20 +858,30 @@ export async function createSeries(input: {
   synopsis: string;
   genres: string;
   posterUrl: string | null;
+  posterImageId: string | null;
   status: SeriesStatus;
 }): Promise<CreatedSeries> {
   const slug = await uniqueSlug(input.title);
   const seriesId = await uniqueSeriesId();
   const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [seriesId, input.title, slug, input.synopsis || null, input.genres || null, input.posterUrl, input.status],
+    `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [seriesId, input.title, slug, input.synopsis || null, input.genres || null, input.posterUrl, input.posterImageId, input.status],
   );
 
   return {
     id: result.insertId,
     seriesId,
   };
+}
+
+export async function setSeriesPoster(seriesId: number, imageId: string): Promise<boolean> {
+  // Keep the legacy location so clearing the replacement ID can restore the original poster.
+  const [result] = await pool.execute<ResultSetHeader>(
+    "UPDATE series SET poster_image_id = ? WHERE id = ?",
+    [imageId, seriesId],
+  );
+  return result.affectedRows > 0;
 }
 
 export async function listEpisodes(includeDrafts = true, userId?: string): Promise<EpisodeRow[]> {
@@ -960,19 +991,41 @@ export async function getEpisodePublicId(episodeIdentifier: string | number): Pr
   return rows[0]?.episode_id ?? null;
 }
 
-export async function attachCloudflareVideo(episodeId: number, uid: string): Promise<void> {
-  await pool.execute(
+export async function getEpisodeMedia(episodeId: number): Promise<EpisodeMedia | null> {
+  const [rows] = await pool.execute<EpisodeMedia[]>(
+    `SELECT id, status, cloudflare_video_uid, cloudflare_ready, cloudflare_pending_uid,
+            cloudflare_upload_state, cloudflare_upload_error
+       FROM episodes WHERE id = ?`,
+    [episodeId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function beginEpisodeStreamUpload(episodeId: number, uid: string, replacedUid: string | null): Promise<boolean> {
+  const [result] = await pool.execute<ResultSetHeader>(
     `UPDATE episodes
-        SET cloudflare_video_uid = ?, status = 'processing', cloudflare_ready = 0
-      WHERE id = ?`,
-    [uid, episodeId],
+        SET cloudflare_pending_uid = ?, cloudflare_upload_state = 'uploading', cloudflare_upload_error = NULL
+      WHERE id = ? AND cloudflare_pending_uid <=> ?`,
+    [uid, episodeId, replacedUid],
+  );
+  return result.affectedRows > 0;
+}
+
+export async function markEpisodeUploadComplete(episodeId: number, uid: string): Promise<void> {
+  await pool.execute(
+    `UPDATE episodes SET cloudflare_upload_state = 'processing'
+      WHERE id = ? AND cloudflare_pending_uid = ? AND cloudflare_upload_state = 'uploading'`,
+    [episodeId, uid],
   );
 }
 
 export async function attachLocalVideo(episodeId: number, videoUrl: string): Promise<void> {
   await pool.execute(
     `UPDATE episodes
-        SET cloudflare_video_uid = ?, cloudflare_ready = 1
+        SET cloudflare_video_uid = ?, cloudflare_ready = 1,
+            cloudflare_pending_uid = NULL, cloudflare_upload_state = NULL, cloudflare_upload_error = NULL,
+            cloudflare_thumbnail_time_ms = NULL, thumbnail_url = NULL, duration_seconds = NULL,
+            status = IF(status = 'processing', 'draft', status)
       WHERE id = ?`,
     [`local:${videoUrl}`, episodeId],
   );
@@ -983,6 +1036,18 @@ export async function setSeriesStatus(seriesId: number, status: SeriesStatus): P
 }
 
 export async function setEpisodeStatus(episodeId: number, status: EpisodeStatus): Promise<void> {
+  if (status === "live") {
+    const [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE episodes SET status = 'live'
+        WHERE id = ? AND cloudflare_ready = 1 AND cloudflare_video_uid IS NOT NULL
+          AND (? OR cloudflare_video_uid NOT LIKE 'local:%')`,
+      [episodeId, allowLocalMedia],
+    );
+    if (!result.affectedRows) {
+      throw new MediaError(409, "The video must finish processing before this episode can be published.");
+    }
+    return;
+  }
   await pool.execute("UPDATE episodes SET status = ? WHERE id = ?", [status, episodeId]);
 }
 
@@ -990,18 +1055,42 @@ export async function deleteEpisode(episodeId: number): Promise<void> {
   await pool.execute("DELETE FROM episodes WHERE id = ?", [episodeId]);
 }
 
-export async function markEpisodeReady(episodeId: number, input: {
-  ready: boolean;
-  durationSeconds?: number | null;
-  thumbnailUrl?: string | null;
-}): Promise<void> {
+export async function applyStreamVideoStatus(video: StreamVideo): Promise<void> {
+  if (video.state === "uploading") return;
+
+  if (video.state === "processing") {
+    await pool.execute(
+      `UPDATE episodes SET cloudflare_upload_state = 'processing'
+        WHERE cloudflare_pending_uid = ? AND cloudflare_upload_state = 'uploading'`,
+      [video.uid],
+    );
+    return;
+  }
+
+  // The second match covers pre-migration records that were still processing.
+  const currentUpload = `(
+    (cloudflare_pending_uid = ? AND cloudflare_upload_state IN ('uploading', 'processing'))
+    OR (cloudflare_pending_uid IS NULL AND cloudflare_upload_state IS NULL
+        AND cloudflare_video_uid = ? AND cloudflare_ready = 0)
+  )`;
+  if (video.state === "failed") {
+    await pool.execute(
+      `UPDATE episodes
+          SET cloudflare_upload_state = 'failed', cloudflare_upload_error = ?
+        WHERE ${currentUpload}`,
+      [video.error, video.uid, video.uid],
+    );
+    return;
+  }
+
   await pool.execute(
     `UPDATE episodes
-        SET cloudflare_ready = ?, duration_seconds = COALESCE(?, duration_seconds),
-            thumbnail_url = COALESCE(?, thumbnail_url),
-            status = IF(? = 1 AND status = 'processing', 'draft', status)
-      WHERE id = ?`,
-    [input.ready ? 1 : 0, input.durationSeconds ?? null, input.thumbnailUrl ?? null, input.ready ? 1 : 0, episodeId],
+        SET cloudflare_video_uid = ?, cloudflare_ready = 1, duration_seconds = ?,
+            thumbnail_url = NULL, cloudflare_thumbnail_time_ms = ?,
+            status = IF(status = 'processing', 'draft', status),
+            cloudflare_pending_uid = NULL, cloudflare_upload_state = NULL, cloudflare_upload_error = NULL
+      WHERE ${currentUpload}`,
+    [video.uid, video.durationSeconds, video.thumbnailTimeMs, video.uid, video.uid],
   );
 }
 
@@ -1204,6 +1293,7 @@ function mapProfileEpisode(row: ProfileEpisodeRow): ProfileEpisode {
       synopsis: row.synopsis,
       genres: row.genres,
       poster_url: row.poster_url,
+      poster_image_id: row.poster_image_id,
       status: row.status,
       episode_count: numberValue(row.episode_count),
       free_episode_count: numberValue(row.free_episode_count),
@@ -1225,6 +1315,7 @@ export async function listWatchHistory(userId: string): Promise<ProfileEpisode[]
         s.synopsis,
         s.genres,
         s.poster_url,
+        s.poster_image_id,
         s.status,
         e.episode_number,
         e.title AS episode_title,
@@ -1270,6 +1361,7 @@ export async function listLikedEpisodes(userId: string): Promise<ProfileEpisode[
         s.synopsis,
         s.genres,
         s.poster_url,
+        s.poster_image_id,
         s.status,
         e.episode_number,
         e.title AS episode_title,
@@ -1357,15 +1449,19 @@ export async function setEpisodeReaction(
   return getEpisodeEngagement(episodeId, userId);
 }
 
-export async function listEpisodeComments(episodeId: string): Promise<EpisodeComment[]> {
+export async function listEpisodeComments(episodeId: string, viewerUserId?: string): Promise<EpisodeComment[]> {
   const [rows] = await pool.execute<EpisodeCommentRow[]>(
     `SELECT c.id, c.user_id, c.body, c.created_at, u.name AS author_name
        FROM episode_comments c
        LEFT JOIN mobile_users u ON u.user_id = c.user_id
       WHERE c.episode_id = ?
+        AND (? = '' OR NOT EXISTS (
+          SELECT 1 FROM user_blocks b
+           WHERE b.blocker_user_id = ? AND b.blocked_user_id = c.user_id
+        ))
       ORDER BY c.created_at DESC, c.id DESC
       LIMIT 50`,
-    [episodeId],
+    [episodeId, viewerUserId ?? "", viewerUserId ?? ""],
   );
 
   return rows.map((row) => ({
@@ -1375,6 +1471,29 @@ export async function listEpisodeComments(episodeId: string): Promise<EpisodeCom
     body: row.body,
     createdAt: row.created_at,
   }));
+}
+
+export async function reportComment(commentId: number, reporterUserId: string, reason: string, details: string): Promise<void> {
+  await pool.execute(
+    `INSERT INTO comment_reports (comment_id, reporter_user_id, reason, details)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE reason = VALUES(reason), details = VALUES(details), status = 'open'`,
+    [commentId, reporterUserId, reason.slice(0, 80), details.slice(0, 500) || null],
+  );
+}
+
+export async function blockUser(blockerUserId: string, blockedUserId: string): Promise<void> {
+  if (!blockedUserId || blockerUserId === blockedUserId) throw new Error("Invalid user to block.");
+  await pool.execute(
+    `INSERT INTO user_blocks (blocker_user_id, blocked_user_id) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE blocked_user_id = blocked_user_id`,
+    [blockerUserId, blockedUserId],
+  );
+}
+
+export async function deleteOwnComment(commentId: number, userId: string): Promise<boolean> {
+  const [result] = await pool.execute<ResultSetHeader>("DELETE FROM episode_comments WHERE id = ? AND user_id = ?", [commentId, userId]);
+  return result.affectedRows > 0;
 }
 
 export async function addEpisodeComment(episodeId: string, userId: string, body: string): Promise<EpisodeComment> {

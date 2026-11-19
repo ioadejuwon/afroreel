@@ -13,9 +13,10 @@
       <article class="empty-card">No series yet.</article>
     <% } %>
     <% series.forEach((item) => { %>
+      <% const previewUrl = posterUrl(item, "admin-preview"); %>
       <article class="series-card">
-        <% if (item.poster_url) { %>
-          <div class="poster" style="background-image: url('<%= item.poster_url %>')"></div>
+        <% if (previewUrl) { %>
+          <img class="poster" src="<%= previewUrl %>" alt="" loading="lazy" />
         <% } else { %>
           <div class="poster"></div>
         <% } %>

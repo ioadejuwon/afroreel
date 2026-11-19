@@ -45,13 +45,6 @@
       <span>Release date</span>
       <input type="date" name="releaseDate" />
     </label>
-    <label>
-      <span>Status</span>
-      <select name="status">
-        <option value="draft">Draft</option>
-        <option value="live">Live</option>
-      </select>
-    </label>
     <label class="check-row">
       <input type="checkbox" name="isFree" />
       <span>Free episode</span>
@@ -62,14 +55,14 @@
       <strong data-create-video-file-name>Drop video here or choose file</strong>
       <em>MP4 or supported video file</em>
     </label>
-    <span class="span-2 form-status" data-create-episode-status></span>
+    <span class="span-2 form-status" role="status" data-create-episode-status></span>
     <button class="primary-button" type="submit">Create Episode</button>
   </form>
 
   <div class="panel upload-panel">
     <div class="panel-header">
       <h2>Video Uploads</h2>
-      <span>Local storage</span>
+      <span>Cloudflare Stream</span>
     </div>
     <% if (episodes.length === 0) { %>
       <div class="empty-card action-empty">
@@ -79,35 +72,19 @@
     <% } else { %>
       <div class="episode-upload-list">
         <% episodes.forEach((episode) => { %>
-          <article class="episode-upload-card" data-episode-id="<%= episode.id %>" data-video-uid="<%= episode.cloudflare_video_uid || '' %>">
+          <% const video = videoUploadResponse(episode); %>
+          <article class="episode-upload-card" data-episode-id="<%= episode.id %>" data-video-uid="<%= video.uid || '' %>">
             <div class="episode-main">
               <span class="episode-kicker">Ep <%= episode.episode_number %> · <%= episode.series_title %></span>
               <strong><%= episode.title %></strong>
               <div class="episode-meta">
                 <span><%= episode.is_free ? 'Free' : 'Locked' %></span>
                 <span><%= episode.is_free ? 0 : episode.coin_cost %> coins</span>
-                <span data-video-state>
-                  <% if (episode.cloudflare_ready) { %>
-                    Ready
-                  <% } else if (episode.cloudflare_video_uid) { %>
-                    Processing
-                  <% } else { %>
-                    Missing video
-                  <% } %>
-                </span>
+                <span data-video-state><%= video.label %></span>
                 <span class="status <%= episode.status === 'processing' ? 'review' : episode.status %>" data-status-label><%= episode.status %></span>
               </div>
             </div>
-            <div class="upload-cell">
-              <input type="file" accept="video/*" data-video-file />
-              <div class="upload-actions">
-                <button class="primary-button" type="button" data-upload-video>Upload</button>
-                <% if (episode.cloudflare_video_uid) { %>
-                  <button class="ghost-button" type="button" data-refresh-video>Refresh</button>
-                <% } %>
-              </div>
-              <span data-upload-status></span>
-            </div>
+            <%- include("episode-upload-controls", { video }) %>
             <form class="inline-form" method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status" data-status-form data-entity-type="episode">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <input type="hidden" name="status" value="<%= episode.status === 'live' ? 'draft' : 'live' %>" />

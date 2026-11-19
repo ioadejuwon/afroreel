@@ -1,0 +1,7 @@
+<label class="poster-dropzone" data-poster-dropzone>
+  <input type="file" accept="image/png,image/jpeg,image/webp" data-poster-file <%= required ? "required" : "" %> />
+  <span class="poster-preview" data-poster-preview aria-hidden="true"></span>
+  <span class="poster-dropzone-kicker"><%= label %></span>
+  <strong data-poster-file-name>Drop image here or choose file</strong>
+  <em>JPEG, PNG, or WebP · 10 MB max</em>
+</label>

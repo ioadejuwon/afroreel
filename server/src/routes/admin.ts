@@ -1,22 +1,36 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { attemptAdminLogin, requireAdmin } from "../auth";
 import {
-  attachCloudflareVideo,
+  applyStreamVideoStatus,
   attachLocalVideo,
+  beginEpisodeStreamUpload,
   createEpisode,
   createSeries,
   deleteEpisode,
   getDashboardData,
+  getEpisodeMedia,
   getUsersData,
   listEpisodes,
   listSeries,
-  markEpisodeReady,
+  markEpisodeUploadComplete,
   setEpisodeStatus,
+  setSeriesPoster,
   setSeriesStatus,
+  type EpisodeMedia,
   type EpisodeStatus,
   type SeriesStatus,
 } from "../content";
-import { createTusUpload, getStreamVideo } from "../cloudflare";
+import {
+  createImageDirectUpload,
+  createTusUpload,
+  getStreamVideo,
+  isStreamVideoUid,
+  MediaError,
+  STREAM_MAX_DURATION_SECONDS,
+  verifyPosterImage,
+} from "../cloudflare";
+import { allowLocalMedia, config } from "../config";
+import { posterUrl } from "../media";
 import { saveLocalVideoStream, savePosterDataUrl } from "../uploads";
 
 export const adminRouter = Router();
@@ -56,6 +70,9 @@ async function renderAdmin(req: Request, res: Response, options: {
     users,
     selectedSeries,
     selectedEpisodes,
+    posterUrl,
+    videoUploadResponse,
+    pollStreamLocally: config.nodeEnv === "development",
     episodeFormError: options.episodeFormError ?? "",
     initialView,
   });
@@ -154,20 +171,49 @@ adminRouter.post("/series", requireAdmin, async (req, res, next) => {
   try {
     const title = stringBody(req.body.title);
     if (!title) {
-      res.status(400).send("Series title is required.");
-      return;
+      throw new MediaError(400, "Series title is required.");
     }
 
-    const posterUrl = await savePosterDataUrl(stringBody(req.body.posterDataUrl));
+    const posterImageId = stringBody(req.body.posterImageId) || null;
+    if (posterImageId) await verifyPosterImage(posterImageId);
+    const posterData = stringBody(req.body.posterDataUrl);
+    if (!posterImageId && posterData && !allowLocalMedia) {
+      throw new MediaError(400, "Upload the poster to Cloudflare Images.");
+    }
     const series = await createSeries({
       title,
       synopsis: stringBody(req.body.synopsis),
       genres: stringBody(req.body.genres),
-      posterUrl,
+      posterUrl: !posterImageId && posterData ? await savePosterDataUrl(posterData) : null,
+      posterImageId,
       status: enumBody<SeriesStatus>(req.body.status, ["draft", "live"], "draft"),
     });
 
-    res.redirect(adminPath(req, `/series/${series.seriesId}`));
+    const redirectTo = adminPath(req, `/series/${series.seriesId}`);
+    if (wantsJson(req)) {
+      res.status(201).json({ redirectTo });
+      return;
+    }
+    res.redirect(redirectTo);
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.post("/series/:seriesId/poster", requireAdmin, async (req, res, next) => {
+  try {
+    const seriesId = paramNumber(req.params.seriesId);
+    const imageId = stringBody(req.body?.posterImageId);
+    if (seriesId < 1 || !imageId) throw new MediaError(400, "Choose a poster for this series.");
+
+    await verifyPosterImage(imageId);
+    if (!await setSeriesPoster(seriesId, imageId)) throw new MediaError(404, "Series not found.");
+    const redirectTo = adminPath(req, `/series/${seriesId}`);
+    if (wantsJson(req)) {
+      res.json({ redirectTo });
+      return;
+    }
+    res.redirect(redirectTo);
   } catch (error) {
     next(error);
   }
@@ -204,7 +250,7 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
       isFree: req.body.isFree === "on",
       coinCost: coinCost >= 0 ? coinCost : 5,
       releaseDate: stringBody(req.body.releaseDate) || null,
-      status: enumBody<EpisodeStatus>(req.body.status, ["draft", "processing", "live"], "draft"),
+      status: enumBody<EpisodeStatus>(req.body.status, ["draft", "processing"], "draft"),
     });
 
     const returnTo = stringBody(req.body.returnTo);
@@ -299,24 +345,7 @@ adminRouter.post("/episodes/:episodeId/delete", requireAdmin, async (req, res, n
 
 adminRouter.post("/api/episodes/:episodeId/tus-upload-url", requireAdmin, async (req, res, next) => {
   try {
-    const episodeId = paramNumber(req.params.episodeId);
-    const uploadLength = numberBody(req.body.uploadLength);
-    const name = stringBody(req.body.name) || `episode-${episodeId}.mp4`;
-    const maxDurationSeconds = numberBody(req.body.maxDurationSeconds) || 1800;
-
-    if (!episodeId) {
-      res.status(400).json({ error: "Missing episode ID. Refresh the page and try again." });
-      return;
-    }
-
-    if (!uploadLength) {
-      res.status(400).json({ error: "Missing upload length. Choose a video file and try again." });
-      return;
-    }
-
-    const upload = await createTusUpload({ uploadLength, name, maxDurationSeconds });
-    await attachCloudflareVideo(episodeId, upload.uid);
-    res.json(upload);
+    await reserveStreamUpload(req, res, paramNumber(req.params.episodeId));
   } catch (error) {
     next(error);
   }
@@ -324,15 +353,12 @@ adminRouter.post("/api/episodes/:episodeId/tus-upload-url", requireAdmin, async 
 
 adminRouter.post("/api/episodes/:episodeId/local-video", requireAdmin, async (req, res, next) => {
   try {
+    if (!allowLocalMedia) throw new MediaError(404, "Local uploads are available only in development.");
     const episodeId = paramNumber(req.params.episodeId);
     const contentLength = Number.parseInt(req.header("content-length") || "0", 10);
     const originalName = req.header("x-file-name") || `episode-${episodeId}.mp4`;
 
-    if (!episodeId) {
-      res.status(400).json({ error: "Missing episode ID. Refresh the page and try again." });
-      return;
-    }
-
+    await requireEpisodeMedia(episodeId);
     const videoUrl = await saveLocalVideoStream(req, originalName, Number.isNaN(contentLength) ? 0 : contentLength);
     await attachLocalVideo(episodeId, videoUrl);
     res.json({ ready: true, uid: `local:${videoUrl}`, playbackUrl: videoUrl });
@@ -343,25 +369,16 @@ adminRouter.post("/api/episodes/:episodeId/local-video", requireAdmin, async (re
 
 adminRouter.post("/api/cloudflare/tus-upload-url", requireAdmin, async (req, res, next) => {
   try {
-    const uploadLength = numberBody(req.body.uploadLength);
-    const episodeId = numberBody(req.body.episodeId);
-    const name = stringBody(req.body.name) || `episode-${episodeId}.mp4`;
-    const maxDurationSeconds = numberBody(req.body.maxDurationSeconds) || 1800;
+    await reserveStreamUpload(req, res, numberBody(req.body?.episodeId));
+  } catch (error) {
+    next(error);
+  }
+});
 
-    if (!uploadLength || !episodeId) {
-      res.status(400).json({
-        error: "Missing upload details. Refresh the page and choose the video file again.",
-        missing: {
-          uploadLength: !uploadLength,
-          episodeId: !episodeId,
-        },
-      });
-      return;
-    }
-
-    const upload = await createTusUpload({ uploadLength, name, maxDurationSeconds });
-    await attachCloudflareVideo(episodeId, upload.uid);
-    res.json(upload);
+adminRouter.post("/api/cloudflare/image-upload-url", requireAdmin, async (req, res, next) => {
+  try {
+    const upload = await createImageDirectUpload();
+    res.set("Cache-Control", "no-store").json(upload);
   } catch (error) {
     next(error);
   }
@@ -370,15 +387,21 @@ adminRouter.post("/api/cloudflare/tus-upload-url", requireAdmin, async (req, res
 adminRouter.post("/api/episodes/:episodeId/cloudflare-complete", requireAdmin, async (req, res, next) => {
   try {
     const episodeId = paramNumber(req.params.episodeId);
-    const uid = stringBody(req.body.uid);
+    const uid = stringBody(req.body?.uid);
+    const episode = await requireEpisodeMedia(episodeId);
 
-    if (!episodeId || !uid) {
-      res.status(400).json({ error: "episodeId and uid are required." });
-      return;
+    if (!isStreamVideoUid(uid)) throw new MediaError(400, "A Stream upload ID is required.");
+    if (uid !== episode.cloudflare_pending_uid && uid !== episode.cloudflare_video_uid) {
+      throw new MediaError(409, "This upload was replaced. Refresh the episode before trying again.");
     }
 
-    await attachCloudflareVideo(episodeId, uid);
-    res.json({ ok: true });
+    await markEpisodeUploadComplete(episodeId, uid);
+    const current = await requireEpisodeMedia(episodeId);
+    const status = videoUploadResponse(current);
+    if (uid !== status.uid) {
+      throw new MediaError(409, "This upload was replaced. Refresh the episode before trying again.");
+    }
+    res.json({ ok: true, ...status });
   } catch (error) {
     next(error);
   }
@@ -387,25 +410,68 @@ adminRouter.post("/api/episodes/:episodeId/cloudflare-complete", requireAdmin, a
 adminRouter.post("/api/episodes/:episodeId/refresh-video", requireAdmin, async (req, res, next) => {
   try {
     const episodeId = paramNumber(req.params.episodeId);
-    const uid = stringBody(req.body.uid);
-
-    if (!episodeId || !uid) {
-      res.status(400).json({ error: "episodeId and uid are required." });
-      return;
+    const episode = await requireEpisodeMedia(episodeId);
+    const video = videoUploadResponse(episode);
+    if (video.canRefresh && video.uid) {
+      await applyStreamVideoStatus(await getStreamVideo(video.uid));
     }
-
-    if (uid.startsWith("local:")) {
-      res.json({ ready: true, durationSeconds: null, thumbnailUrl: null });
-      return;
-    }
-
-    const video = await getStreamVideo(uid);
-    await markEpisodeReady(episodeId, video);
-    res.json(video);
+    res.json(videoUploadResponse(await requireEpisodeMedia(episodeId)));
   } catch (error) {
     next(error);
   }
 });
+
+async function requireEpisodeMedia(episodeId: number): Promise<EpisodeMedia> {
+  if (!Number.isSafeInteger(episodeId) || episodeId < 1) {
+    throw new MediaError(400, "Choose a valid episode.");
+  }
+  const episode = await getEpisodeMedia(episodeId);
+  if (!episode) throw new MediaError(404, "Episode not found.");
+  return episode;
+}
+
+async function reserveStreamUpload(req: Request, res: Response, episodeId: number): Promise<void> {
+  const episode = await requireEpisodeMedia(episodeId);
+  const uploadLength = Number(req.body?.uploadLength);
+  const name = stringBody(req.body?.name).slice(0, 255) || `episode-${episodeId}.mp4`;
+  const maxDurationSeconds = Number(req.body?.maxDurationSeconds ?? STREAM_MAX_DURATION_SECONDS);
+  if (!Number.isSafeInteger(uploadLength) || uploadLength < 1 || uploadLength > 30 * 1024 ** 3) {
+    throw new MediaError(400, "Choose a video file between 1 byte and 30 GiB.");
+  }
+  if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > STREAM_MAX_DURATION_SECONDS) {
+    throw new MediaError(400, "The episode video must be 30 minutes or shorter.");
+  }
+  const upload = await createTusUpload({ uploadLength, name, maxDurationSeconds });
+  if (!await beginEpisodeStreamUpload(episodeId, upload.uid, episode.cloudflare_pending_uid)) {
+    throw new MediaError(409, "Another upload changed this episode. Refresh it and try again.");
+  }
+  res.set("Cache-Control", "no-store").json(upload);
+}
+
+function videoUploadResponse(episode: EpisodeMedia) {
+  const uid = episode.cloudflare_pending_uid ?? episode.cloudflare_video_uid;
+  const activeUid = episode.cloudflare_video_uid;
+  const activeReady = Boolean(episode.cloudflare_ready) &&
+    (isStreamVideoUid(activeUid) || (allowLocalMedia && Boolean(activeUid?.startsWith("local:"))));
+  const state = episode.cloudflare_upload_state ?? (activeReady ? "ready" : isStreamVideoUid(uid) ? "processing" : "missing");
+  const labels = {
+    uploading: "Uploading",
+    processing: "Processing",
+    ready: isStreamVideoUid(activeUid) ? "Ready · Cloudflare Stream" : "Ready · Local video",
+    failed: "Upload failed",
+    missing: "Missing video",
+  };
+  return {
+    uid,
+    state,
+    ready: state === "ready",
+    activeReady,
+    label: labels[state] + (activeReady && state !== "ready" ? " · Existing video still active" : ""),
+    status: episode.status,
+    error: episode.cloudflare_upload_error,
+    canRefresh: isStreamVideoUid(uid) && (state === "uploading" || state === "processing"),
+  };
+}
 
 function stringBody(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

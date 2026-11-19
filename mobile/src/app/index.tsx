@@ -1,11 +1,11 @@
 import { ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   Alert,
+  Image,
   ImageBackground,
   ImageSourcePropType,
   PanResponder,
@@ -23,8 +23,24 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/colors';
 import { Radius, SafeArea, Screen, Shadow, Size, Spacing } from '@/constants/layout';
-
-declare const process: { env?: Record<string, string | undefined> };
+import {
+  AUTH_REFRESH_TOKEN_STORAGE_KEY,
+  AUTH_TOKEN_STORAGE_KEY,
+  fetchJson,
+  resolveMediaUrl,
+  setApiAuthToken,
+  setApiRefreshToken,
+} from '@/services/api';
+import type {
+  ApiEpisode,
+  ApiPlaybackSession,
+  ApiProfileEpisode,
+  ApiSeries,
+  AuthUser,
+  EpisodeComment,
+  EpisodeEngagement,
+  WalletTransaction,
+} from '@/types/api.types';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -38,6 +54,7 @@ type Drama = {
   episodeCount: number;
   posterGradient: readonly [string, string];
   posterImage?: ImageSourcePropType;
+  posterCardImage?: ImageSourcePropType;
   mood: string;
   progress?: number;
   progressSeconds?: number;
@@ -57,6 +74,7 @@ type PlayerEpisode = {
   number: number;
   title: string;
   hook: string;
+  thumbnailUrl: string | null;
   progress: number;
   isLocked: boolean;
   isFree?: boolean;
@@ -66,13 +84,6 @@ type UnlockMethod = 'coins' | 'ad';
 type AppView = 'tabs' | 'series-detail' | 'continue-watching' | 'profile-history' | 'profile-likes' | 'profile-settings' | 'category-list' | 'payment';
 type EntryStep = 'splash' | 'onboarding' | 'auth' | 'app';
 type SeriesCategory = 'continue' | 'trending' | 'new' | 'free';
-type AuthUser = {
-  id: string;
-  email: string;
-  username: string | null;
-  name: string;
-  coinBalance: number;
-};
 type WalletTopUpNotification = {
   coinsAdded: number;
   newBalance: number;
@@ -154,163 +165,6 @@ const categoryTitles: Record<SeriesCategory, string> = {
   free: 'Free to Watch',
 };
 
-function getExpoHost(): string | null {
-  const constants = Constants as unknown as {
-    expoConfig?: { hostUri?: string; extra?: { apiBaseUrl?: string } };
-    manifest?: { debuggerHost?: string; hostUri?: string };
-  };
-  const hostUri = constants.expoConfig?.hostUri ?? constants.manifest?.hostUri ?? constants.manifest?.debuggerHost;
-  const host = hostUri?.split(':')[0];
-
-  return host || null;
-}
-
-function getConfiguredApiBaseUrl(): string | undefined {
-  const constants = Constants as unknown as {
-    expoConfig?: { extra?: { apiBaseUrl?: string } };
-  };
-
-  return process.env?.EXPO_PUBLIC_API_BASE_URL ?? constants.expoConfig?.extra?.apiBaseUrl;
-}
-
-function createLocalApiBaseUrl(): string {
-  const expoHost = getExpoHost();
-  const canUseExpoHost = expoHost && !expoHost.includes('exp.direct');
-
-  return `http://${canUseExpoHost ? expoHost : '192.168.68.120'}:3000`;
-}
-const API_BASE_URL = getConfiguredApiBaseUrl() ?? createLocalApiBaseUrl();
-const API_ORIGIN = API_BASE_URL.match(/^https?:\/\/[^/]+/)?.[0] ?? API_BASE_URL;
-const API_TIMEOUT_MS = 10000;
-const AUTH_TOKEN_STORAGE_KEY = 'afroreel.authToken';
-let apiAuthToken: string | null = null;
-
-function setApiAuthToken(token: string | null): void {
-  apiAuthToken = token;
-}
-
-type ApiSeries = {
-  id: string;
-  databaseId: number;
-  title: string;
-  slug: string;
-  synopsis: string | null;
-  genres: string[];
-  posterUrl: string | null;
-  episodeCount: number;
-  freeEpisodeCount: number;
-  latestEpisodeAt: string | null;
-  progressSeconds: number;
-  status: string;
-};
-
-type ApiEpisode = {
-  id: string;
-  databaseId: number;
-  seriesTitle: string;
-  episodeNumber: number;
-  title: string;
-  hook: string | null;
-  isLocked: boolean;
-  isFree: boolean;
-  coinCost: number;
-  progressSeconds: number;
-};
-
-type ApiProfileEpisode = {
-  episodeId: string;
-  episodeNumber: number;
-  episodeTitle: string;
-  hook: string | null;
-  progressSeconds: number;
-  activityAt: string;
-  series: ApiSeries;
-};
-
-type WalletTransaction = {
-  id: number;
-  type: 'top_up' | 'spend' | 'reward';
-  coinAmount: number;
-  description: string;
-  episodeId: string | null;
-  seriesTitle: string | null;
-  episodeNumber: number | null;
-  createdAt: string;
-};
-
-type EpisodeEngagement = {
-  likeCount: number;
-  commentCount: number;
-  saveCount: number;
-  hasLiked: boolean;
-  hasSaved: boolean;
-};
-
-type EpisodeComment = {
-  id: number;
-  userId: string;
-  authorName: string;
-  body: string;
-  createdAt: string;
-};
-
-async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-  const url = `${API_BASE_URL}${path}`;
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-  };
-
-  if (apiAuthToken) {
-    headers.authorization = `Bearer ${apiAuthToken}`;
-  }
-
-  let response: Response;
-
-  try {
-    response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        ...headers,
-        ...(options?.headers ?? {}),
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error && error.name === 'AbortError'
-      ? `Timed out loading ${url}`
-      : `Could not reach ${url}`;
-
-    throw new Error(message);
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  if (!response.ok) {
-    let errorMessage = `Request failed: ${response.status} from ${url}`;
-
-    try {
-      const payload = await response.json() as { error?: string };
-      errorMessage = payload.error || errorMessage;
-    } catch {
-      // Keep the transport error if the response is not JSON.
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-function resolveMediaUrl(value: string | null): string | null {
-  if (!value || value.startsWith('http')) {
-    return value;
-  }
-
-  return `${API_ORIGIN}${value.startsWith('/') ? value : `/${value}`}`;
-}
-
 const posterGradients: readonly (readonly [string, string])[] = [
   ['#40285f', '#12091f'],
   ['#5a202b', '#17080d'],
@@ -324,6 +178,8 @@ function mapApiSeriesToDrama(item: ApiSeries, index: number): Drama {
   const tags = item.genres.length > 0 ? item.genres : ['Drama'];
   const genre = tags.join(' / ');
   const progressSeconds = item.progressSeconds ?? 0;
+  const posterUri = resolveMediaUrl(item.posterUrl);
+  const cardUri = resolveMediaUrl(item.posterCardUrl ?? item.posterUrl);
 
   return {
     id: item.slug || String(item.id),
@@ -339,10 +195,27 @@ function mapApiSeriesToDrama(item: ApiSeries, index: number): Drama {
     progressSeconds,
     progress: progressSeconds > 0 ? 35 : undefined,
     posterGradient: posterGradients[index % posterGradients.length],
-    posterImage: item.posterUrl ? { uri: resolveMediaUrl(item.posterUrl) ?? item.posterUrl } : undefined,
+    posterImage: posterUri ? { uri: posterUri } : undefined,
+    posterCardImage: cardUri ? { uri: cardUri } : undefined,
     mood: item.synopsis || 'A new AfroReel story is ready to watch.',
     rank: index + 1,
     status: item.status === 'live' ? 'Ongoing' : 'Completed',
+  };
+}
+
+function mapApiEpisode(item: ApiEpisode): PlayerEpisode {
+  return {
+    id: item.id,
+    databaseId: item.databaseId,
+    seriesTitle: item.seriesTitle,
+    number: item.episodeNumber,
+    title: item.title,
+    hook: item.hook ?? '',
+    thumbnailUrl: resolveMediaUrl(item.thumbnailUrl ?? null),
+    progress: item.progressSeconds > 0 ? 35 : 0,
+    isLocked: item.isLocked,
+    isFree: item.isFree,
+    coinCost: item.coinCost,
   };
 }
 
@@ -411,6 +284,7 @@ export default function HomeScreen() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+  const [startEpisodeId, setStartEpisodeId] = useState<string>();
   const [activeView, setActiveView] = useState<AppView>('tabs');
   const [activeCategory, setActiveCategory] = useState<SeriesCategory>('trending');
   const [seriesCatalog, setSeriesCatalog] = useState<Drama[]>([]);
@@ -463,21 +337,27 @@ export default function HomeScreen() {
 
     async function loadStoredAuth() {
       try {
-        const storedToken = await SecureStore.getItemAsync(AUTH_TOKEN_STORAGE_KEY);
+        const [storedToken, storedRefreshToken] = await Promise.all([
+          SecureStore.getItemAsync(AUTH_TOKEN_STORAGE_KEY),
+          SecureStore.getItemAsync(AUTH_REFRESH_TOKEN_STORAGE_KEY),
+        ]);
         if (!storedToken) {
           return;
         }
 
         setApiAuthToken(storedToken);
+        setApiRefreshToken(storedRefreshToken);
         const payload = await fetchJson<{ user: AuthUser }>('/api/auth/me');
 
         if (isMounted) {
-          setAuthToken(storedToken);
+          setAuthToken(await SecureStore.getItemAsync(AUTH_TOKEN_STORAGE_KEY) ?? storedToken);
           setCurrentUser(payload.user);
         }
       } catch {
         await SecureStore.deleteItemAsync(AUTH_TOKEN_STORAGE_KEY);
+        await SecureStore.deleteItemAsync(AUTH_REFRESH_TOKEN_STORAGE_KEY);
         setApiAuthToken(null);
+        setApiRefreshToken(null);
       }
     }
 
@@ -529,11 +409,12 @@ export default function HomeScreen() {
     setActiveView('series-detail');
   }, []);
 
-  const openPlayer = useCallback((series?: Drama) => {
+  const openPlayer = useCallback((series?: Drama, episodeId?: string) => {
     if (series) {
       setSelectedSeries(series);
     }
 
+    setStartEpisodeId(episodeId);
     setIsPlayerOpen(true);
   }, []);
 
@@ -544,7 +425,9 @@ export default function HomeScreen() {
 
   const signOut = useCallback(async () => {
     await SecureStore.deleteItemAsync(AUTH_TOKEN_STORAGE_KEY);
+    await SecureStore.deleteItemAsync(AUTH_REFRESH_TOKEN_STORAGE_KEY);
     setApiAuthToken(null);
+    setApiRefreshToken(null);
     setAuthToken(null);
     setCurrentUser(null);
     setSeriesCatalog([]);
@@ -578,6 +461,7 @@ export default function HomeScreen() {
     return (
       <PlayerScreen
         series={selectedSeries}
+        startEpisodeId={startEpisodeId}
         user={currentUser}
         onUserChange={setCurrentUser}
         onClose={() => setIsPlayerOpen(false)}
@@ -590,7 +474,7 @@ export default function HomeScreen() {
       <SeriesDetailScreen
         series={selectedSeries}
         onBack={() => setActiveView('tabs')}
-        onStartWatching={() => openPlayer(selectedSeries)}
+        onStartWatching={(episodeId) => openPlayer(selectedSeries, episodeId)}
         onRefreshCatalog={refreshSeriesCatalog}
         isRefreshingCatalog={isRefreshingCatalog}
       />
@@ -1227,7 +1111,7 @@ function AuthScreen({
     setAuthError('');
 
     try {
-      const payload = await fetchJson<{ token: string; user: AuthUser }>(
+      const payload = await fetchJson<{ token: string; refreshToken: string; user: AuthUser }>(
         isCreatingAccount ? '/api/auth/signup' : '/api/auth/signin',
         {
           method: 'POST',
@@ -1240,7 +1124,11 @@ function AuthScreen({
       );
 
       setApiAuthToken(payload.token);
-      await SecureStore.setItemAsync(AUTH_TOKEN_STORAGE_KEY, payload.token);
+      setApiRefreshToken(payload.refreshToken);
+      await Promise.all([
+        SecureStore.setItemAsync(AUTH_TOKEN_STORAGE_KEY, payload.token),
+        SecureStore.setItemAsync(AUTH_REFRESH_TOKEN_STORAGE_KEY, payload.refreshToken),
+      ]);
       onUserLoaded(payload.user);
       onComplete(payload.token, payload.user);
     } catch (error) {
@@ -2432,22 +2320,25 @@ function ContinueWatchingScreen({
 
 function PlayerScreen({
   series,
+  startEpisodeId,
   user,
   onUserChange,
   onClose,
 }: {
   series: Drama;
+  startEpisodeId?: string;
   user: AuthUser | null;
   onUserChange: (user: AuthUser) => void;
   onClose: () => void;
 }) {
   const [remoteEpisodes, setRemoteEpisodes] = useState<PlayerEpisode[]>([]);
   const [remoteSeriesTitle, setRemoteSeriesTitle] = useState(series.title);
-  const [activeEpisodeIndex, setActiveEpisodeIndex] = useState(1);
+  const [activeEpisodeIndex, setActiveEpisodeIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [isUnlockSheetOpen, setIsUnlockSheetOpen] = useState(false);
   const [unlockedEpisodes, setUnlockedEpisodes] = useState<number[]>([]);
-  const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+  const [playback, setPlayback] = useState<ApiPlaybackSession | null>(null);
+  const [playbackAttempt, setPlaybackAttempt] = useState(0);
   const [playbackError, setPlaybackError] = useState('');
   const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
   const [durationSeconds, setDurationSeconds] = useState(0);
@@ -2466,7 +2357,13 @@ function PlayerScreen({
   const lastSavedProgressRef = useRef<Record<string, number>>({});
   const episode = remoteEpisodes[Math.min(activeEpisodeIndex, remoteEpisodes.length - 1)];
   const isLocked = Boolean(episode?.isLocked && !unlockedEpisodes.includes(episode.number));
-  const videoPlayer = useVideoPlayer(playbackUrl ? { uri: playbackUrl } : null, (player) => {
+  const currentPlayback = !isLocked && playback?.episodeId === episode?.id ? playback : null;
+  const playbackUrl = currentPlayback?.playbackUrl;
+  const resumeSeconds = currentPlayback?.progressSeconds ?? 0;
+  const videoPlayer = useVideoPlayer(playbackUrl ? {
+    uri: playbackUrl,
+    contentType: currentPlayback?.contentType ?? 'auto',
+  } : null, (player) => {
     player.loop = false;
     player.timeUpdateEventInterval = 0.5;
   });
@@ -2491,13 +2388,22 @@ function PlayerScreen({
     });
     const sourceSubscription = videoPlayer.addListener('sourceLoad', ({ duration }) => {
       setDurationSeconds(duration);
+      if (resumeSeconds > 0 && resumeSeconds < duration) {
+        videoPlayer.currentTime = resumeSeconds;
+      }
+    });
+    const statusSubscription = videoPlayer.addListener('statusChange', ({ status }) => {
+      if (playbackUrl && status === 'error') {
+        setPlaybackError('Unable to play this episode. Try loading it again.');
+      }
     });
 
     return () => {
       timeSubscription.remove();
       sourceSubscription.remove();
+      statusSubscription.remove();
     };
-  }, [playbackUrl, videoPlayer]);
+  }, [playbackUrl, resumeSeconds, videoPlayer]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2511,21 +2417,9 @@ function PlayerScreen({
         }
 
         setRemoteSeriesTitle(series.title);
-        setRemoteEpisodes(
-          episodePayload.episodes.map((item, index) => ({
-            id: item.id,
-            databaseId: item.databaseId,
-            seriesTitle: item.seriesTitle,
-            number: index + 1,
-            title: item.title,
-            hook: item.hook ?? '',
-            progress: item.progressSeconds > 0 ? 35 : 0,
-            isLocked: item.isLocked,
-            isFree: item.isFree,
-            coinCost: item.coinCost,
-          })),
-        );
-        setActiveEpisodeIndex(0);
+        const episodes = episodePayload.episodes.map(mapApiEpisode);
+        setRemoteEpisodes(episodes);
+        setActiveEpisodeIndex(Math.max(0, episodes.findIndex((item) => item.id === startEpisodeId)));
       } catch {
         if (isMounted) {
           setRemoteEpisodes([]);
@@ -2538,13 +2432,13 @@ function PlayerScreen({
     return () => {
       isMounted = false;
     };
-  }, [series.seriesId, series.title]);
+  }, [series.seriesId, series.title, startEpisodeId]);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadPlayback() {
-      setPlaybackUrl(null);
+      setPlayback(null);
       setPlaybackError('');
 
       if (!episode?.id || isLocked) {
@@ -2552,16 +2446,16 @@ function PlayerScreen({
       }
 
       try {
-        const payload = await fetchJson<{ playbackUrl: string }>(`/api/episodes/${episode.id}/playback`, {
+        const payload = await fetchJson<ApiPlaybackSession>(`/api/episodes/${episode.id}/playback`, {
           method: 'POST',
           body: JSON.stringify({}),
         });
         if (isMounted) {
-          setPlaybackUrl(payload.playbackUrl);
+          setPlayback(payload);
         }
-      } catch {
+      } catch (error) {
         if (isMounted) {
-          setPlaybackError('Video is not ready yet.');
+          setPlaybackError(error instanceof Error ? error.message : 'Video is not ready yet.');
         }
       }
     }
@@ -2571,10 +2465,10 @@ function PlayerScreen({
     return () => {
       isMounted = false;
     };
-  }, [episode?.id, isLocked]);
+  }, [episode?.id, isLocked, playbackAttempt]);
 
   useEffect(() => {
-    if (!episode?.id || isLocked || currentTimeSeconds < 5) {
+    if (!episode?.id || !playbackUrl || isLocked || currentTimeSeconds < 5) {
       return;
     }
 
@@ -2592,7 +2486,7 @@ function PlayerScreen({
     }).catch(() => {
       lastSavedProgressRef.current[episodeId] = lastSavedProgress;
     });
-  }, [currentTimeSeconds, episode?.id, isLocked]);
+  }, [currentTimeSeconds, episode?.id, isLocked, playbackUrl]);
 
   useEffect(() => {
     let isMounted = true;
@@ -2856,7 +2750,11 @@ function PlayerScreen({
                 Episode {episode.number} / {episode.title}
               </Text>
               <Text style={styles.playerHook}>{episode.hook}</Text>
-              {playbackError ? <Text style={styles.playerSwipeHint}>{playbackError}</Text> : null}
+              {playbackError ? (
+                <Pressable onPress={() => setPlaybackAttempt((attempt) => attempt + 1)} accessibilityRole="button">
+                  <Text style={styles.playerSwipeHint}>{playbackError} Tap to retry.</Text>
+                </Pressable>
+              ) : null}
               <Text style={styles.playerSwipeHint}>Swipe up for the next episode</Text>
             </View>
 
@@ -2952,7 +2850,7 @@ function SeriesDetailScreen({
 }: {
   series: Drama;
   onBack: () => void;
-  onStartWatching: () => void;
+  onStartWatching: (episodeId?: string) => void;
   onRefreshCatalog: () => Promise<void>;
   isRefreshingCatalog: boolean;
 }) {
@@ -2966,18 +2864,7 @@ function SeriesDetailScreen({
 
     const payload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${series.databaseId}/episodes`);
 
-    return payload.episodes.map((item, index) => ({
-      id: item.id,
-      databaseId: item.databaseId,
-      seriesTitle: item.seriesTitle,
-      number: index + 1,
-      title: item.title,
-      hook: item.hook ?? '',
-      progress: item.progressSeconds > 0 ? 35 : 0,
-      isLocked: item.isLocked,
-      isFree: item.isFree,
-      coinCost: item.coinCost,
-    }));
+    return payload.episodes.map(mapApiEpisode);
   }, [series.databaseId]);
 
   const refreshSeriesDetail = useCallback(async () => {
@@ -3060,7 +2947,7 @@ function SeriesDetailScreen({
           <Text style={styles.detailTitle}>{series.title}</Text>
           <Text style={styles.detailMeta}>4.8 rating  /  {episodeCountLabel}  /  {series.status}</Text>
           <Text style={styles.detailSynopsis}>{series.mood}</Text>
-          <Pressable style={styles.detailWatchButton} onPress={onStartWatching}>
+          <Pressable style={styles.detailWatchButton} onPress={() => onStartWatching()}>
             <Text style={styles.primaryButtonText}>Start Watching</Text>
           </Pressable>
         </View>
@@ -3077,7 +2964,12 @@ function SeriesDetailScreen({
 
         <View style={styles.detailEpisodeList}>
           {episodes.length > 0 ? episodes.map((episode) => (
-            <EpisodeRow key={episode.number} episode={episode} onPress={onStartWatching} />
+            <EpisodeRow
+              key={episode.number}
+              episode={episode}
+              poster={series.posterCardImage ?? series.posterImage}
+              onPress={() => onStartWatching(episode.id)}
+            />
           )) : (
             <Text style={styles.detailSynopsis}>No live episodes are published for this series yet.</Text>
           )}
@@ -3087,13 +2979,28 @@ function SeriesDetailScreen({
   );
 }
 
-function EpisodeRow({ episode, onPress }: { episode: PlayerEpisode; onPress: () => void }) {
+function EpisodeRow({ episode, poster, onPress }: {
+  episode: PlayerEpisode;
+  poster?: ImageSourcePropType;
+  onPress: () => void;
+}) {
   const isFree = Boolean(episode.isFree);
+  const [failedThumbnail, setFailedThumbnail] = useState<string>();
+  const thumbnailUrl = !episode.isLocked && episode.thumbnailUrl !== failedThumbnail ? episode.thumbnailUrl : null;
+  const artwork = thumbnailUrl ? { uri: thumbnailUrl } : poster;
 
   return (
     <Pressable style={styles.episodeRow} onPress={onPress}>
       <LinearGradient colors={['#42275e', '#160b1d']} style={styles.episodeThumb}>
         <Text style={styles.episodeThumbText}>{episode.number}</Text>
+        {artwork ? (
+          <Image
+            source={artwork}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            onError={() => { if (thumbnailUrl) setFailedThumbnail(thumbnailUrl); }}
+          />
+        ) : null}
       </LinearGradient>
       <View style={styles.episodeCopy}>
         <Text style={styles.episodeTitle}>Episode {episode.number}: {episode.title}</Text>
@@ -3387,10 +3294,11 @@ function DramaRail({
 }
 
 function PosterVisual({ drama, isHero = false }: { drama: Drama; isHero?: boolean }) {
-  if (drama.posterImage) {
+  const poster = isHero ? drama.posterImage ?? drama.posterCardImage : drama.posterCardImage ?? drama.posterImage;
+  if (poster) {
     return (
       <ImageBackground
-        source={drama.posterImage}
+        source={poster}
         resizeMode="cover"
         style={StyleSheet.absoluteFill}
       >
@@ -4983,7 +4891,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   commentsOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
     backgroundColor: 'rgba(0,0,0,0.54)',
     justifyContent: 'flex-end',
   },

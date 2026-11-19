@@ -144,10 +144,15 @@ document.querySelectorAll("[data-poster-form]").forEach((form) => {
   const fileName = form.querySelector("[data-poster-file-name]");
   const dropzone = form.querySelector("[data-poster-dropzone]");
   const preview = form.querySelector("[data-poster-preview]");
+  const status = form.querySelector("[data-poster-status]");
+  const button = form.querySelector('button[type="submit"]');
   let posterPreviewUrl = "";
+  let uploadedImageId = "";
 
   fileInput?.addEventListener("change", () => {
     const file = fileInput.files?.[0];
+    uploadedImageId = "";
+    setStatus(status, "");
     if (fileName) {
       fileName.textContent = file ? file.name : "Drop image here or choose file";
     }
@@ -170,22 +175,49 @@ document.querySelectorAll("[data-poster-form]").forEach((form) => {
   });
 
   form.addEventListener("submit", async (event) => {
-    const dataInput = form.querySelector("[data-poster-data]");
     const file = fileInput?.files?.[0];
-
-    if (!file || !dataInput) {
-      return;
-    }
-
+    if (!file || !button) return;
     event.preventDefault();
+    if (button.disabled) return;
 
-    if (file.size > 20 * 1024 * 1024) {
-      alert("Poster image must be 20 MB or smaller.");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setStatus(status, "Choose a JPEG, PNG, or WebP poster.");
+      return;
+    }
+    if (!file.size || file.size > 10 * 1000 * 1000) {
+      setStatus(status, "Choose a poster that is 10 MB or smaller.");
       return;
     }
 
-    dataInput.value = await readAsDataUrl(file);
-    form.submit();
+    button.disabled = true;
+    fileInput.disabled = true;
+    try {
+      if (!uploadedImageId) {
+        setStatus(status, "Uploading poster to Cloudflare…");
+        const upload = await postJson(appUrl("/admin/api/cloudflare/image-upload-url"), {});
+        const imageBody = new FormData();
+        imageBody.set("file", file);
+        const response = await fetch(upload.uploadUrl, {
+          method: "POST",
+          body: imageBody,
+          signal: AbortSignal.timeout(60_000),
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || result?.success === false) throw new Error("Cloudflare could not upload the poster.");
+        uploadedImageId = upload.id;
+      }
+      setStatus(status, "Verifying poster…");
+      const saved = await postJson(form.action, {
+        ...Object.fromEntries(new FormData(form)),
+        posterImageId: uploadedImageId,
+      });
+      window.location.assign(saved.redirectTo);
+    } catch (error) {
+      setStatus(status, error instanceof Error ? error.message : "Poster upload failed.");
+    } finally {
+      button.disabled = false;
+      fileInput.disabled = false;
+    }
   });
 });
 
@@ -211,10 +243,8 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
   });
 
   button.addEventListener("click", async () => {
-    const input = item?.querySelector("[data-video-file]");
     const status = item?.querySelector("[data-upload-status]");
-    const videoState = item?.querySelector("[data-video-state]");
-    const attachedVideo = item?.querySelector("[data-attached-video]");
+    const refreshButton = item?.querySelector("[data-refresh-video]");
     const file = input?.files?.[0];
     const episodeId = item?.dataset.episodeId;
 
@@ -224,27 +254,30 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
     }
 
     button.disabled = true;
-    setStatus(status, "Preparing video upload...");
+    input.disabled = true;
+    if (refreshButton) refreshButton.disabled = true;
+    setStatus(status, "Preparing video upload…");
 
     try {
-      const upload = await uploadLocalVideoWithProgress(episodeId, file, (progress) => {
-        setStatus(status, `Uploading video... ${progress}%`);
-      });
-      item.dataset.videoUid = upload.uid;
-      setStatus(status, "Video attached.");
-      if (videoState) {
-        videoState.textContent = "Ready";
-      }
-      if (attachedVideo) {
-        attachedVideo.textContent = `Video: ${file.name}`;
-      }
-      if (fileName) {
-        fileName.textContent = file.name;
-      }
+      const video = await uploadCloudflareVideoWithProgress(
+        episodeId,
+        file,
+        item.dataset.videoUid,
+        (upload) => {
+          item.dataset.videoUid = upload.uid;
+          setStatus(item.querySelector("[data-video-state]"), "Uploading");
+        },
+        (progress) => setStatus(status, `Uploading to Cloudflare… ${progress}%`),
+      );
+      updateVideoCard(item, video);
+      const finalStatus = await pollStreamStatus(episodeId, video);
+      updateVideoCard(item, finalStatus);
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Upload failed.");
+      if (refreshButton && item.dataset.videoUid) refreshButton.disabled = false;
     } finally {
       button.disabled = false;
+      input.disabled = false;
     }
   });
 });
@@ -255,6 +288,7 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
   const dropzone = form.querySelector("[data-video-create-dropzone]");
   const status = form.querySelector("[data-create-episode-status]");
   const button = form.querySelector('button[type="submit"]');
+  let draftEpisode;
 
   input?.addEventListener("change", () => {
     const file = input.files?.[0];
@@ -282,31 +316,25 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
     if (button) {
       button.disabled = true;
     }
-    setStatus(status, "Creating episode...");
+    setStatus(status, draftEpisode ? "Preparing video upload…" : "Creating episode…");
 
     try {
-      const response = await fetch(form.action, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams(new FormData(form)),
-      });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok || !payload.episodeId) {
-        throw new Error(payload.error || response.statusText || "Episode creation failed.");
+      if (!draftEpisode) {
+        draftEpisode = await postJson(form.action, Object.fromEntries(new FormData(form)));
       }
-
-      setStatus(status, "Preparing video upload...");
-      await uploadLocalVideoWithProgress(payload.episodeId, file, (progress) => {
-        setStatus(status, `Uploading video... ${progress}%`);
-      });
-      setStatus(status, "Video attached.");
-      window.location.assign(payload.redirectTo || viewPath("episodes"));
+      const video = await uploadCloudflareVideoWithProgress(
+        draftEpisode.episodeId,
+        file,
+        undefined,
+        () => setStatus(status, "Uploading to Cloudflare…"),
+        (progress) => setStatus(status, `Uploading to Cloudflare… ${progress}%`),
+      );
+      setStatus(status, video.label);
+      await pollStreamStatus(draftEpisode.episodeId, video);
+      window.location.assign(draftEpisode.redirectTo || viewPath("episodes"));
     } catch (error) {
-      setStatus(status, error instanceof Error ? error.message : "Episode creation failed.");
+      const message = error instanceof Error ? error.message : "Episode creation failed.";
+      setStatus(status, draftEpisode ? `Episode saved. ${message}` : message);
       if (button) {
         button.disabled = false;
       }
@@ -318,26 +346,20 @@ document.querySelectorAll("[data-refresh-video]").forEach((button) => {
   button.addEventListener("click", async () => {
     const item = button.closest("[data-episode-id]");
     const episodeId = item?.dataset.episodeId;
-    const uid = item?.dataset.videoUid;
     const status = item?.querySelector("[data-upload-status]");
-    const videoState = item?.querySelector("[data-video-state]");
 
-    if (!episodeId || !uid) {
+    if (!episodeId) {
       return;
     }
 
     button.disabled = true;
-    setStatus(status, "Checking video...");
+    setStatus(status, "Checking Cloudflare…");
 
     try {
-      const video = await postJson(appUrl(`/admin/api/episodes/${episodeId}/refresh-video`), { uid });
-      setStatus(status, video.ready ? "Ready" : "Still processing");
-      if (videoState) {
-        videoState.textContent = video.ready ? "Ready" : "Processing";
-      }
+      const video = await postJson(appUrl(`/admin/api/episodes/${episodeId}/refresh-video`), {});
+      updateVideoCard(item, video);
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Refresh failed.");
-    } finally {
       button.disabled = false;
     }
   });
@@ -440,53 +462,155 @@ function updateStatusForm(form, status, entityType) {
   }
 }
 
-function readAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => resolve(String(reader.result || "")));
-    reader.addEventListener("error", () => reject(new Error("Could not read poster image.")));
-    reader.readAsDataURL(file);
-  });
+function updateVideoCard(item, video) {
+  item.dataset.videoUid = video.uid || "";
+  setStatus(item.querySelector("[data-video-state]"), video.label);
+  setStatus(item.querySelector("[data-upload-status]"), video.error || "");
+  const refreshButton = item.querySelector("[data-refresh-video]");
+  if (refreshButton) refreshButton.disabled = !video.canRefresh;
+  const uploadButton = item.querySelector("[data-upload-video]");
+  if (uploadButton) uploadButton.textContent = video.activeReady ? "Replace video" : "Upload";
+  const publishForm = item.querySelector("[data-status-form]");
+  if (publishForm) updateStatusForm(publishForm, video.status, "episode");
 }
 
-function uploadLocalVideoWithProgress(episodeId, file, onProgress) {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", appUrl(`/admin/api/episodes/${episodeId}/local-video`));
-    request.timeout = 30 * 60 * 1000;
-    request.setRequestHeader("content-type", file.type || "application/octet-stream");
-    request.setRequestHeader("csrf-token", csrfToken);
-    request.setRequestHeader("x-file-name", file.name);
+async function pollStreamStatus(episodeId, video) {
+  if (!window.AFROREEL_POLL_STREAM || video.state !== "processing") return video;
 
-    request.upload.addEventListener("progress", (event) => {
-      if (event.lengthComputable) {
-        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
-      }
-    });
-
-    request.addEventListener("load", () => {
-      const payload = parseJsonResponse(request.responseText);
-      if (request.status < 200 || request.status >= 300) {
-        reject(new Error(payload.error || request.statusText || "Upload failed."));
-        return;
-      }
-
-      onProgress(100);
-      resolve(payload);
-    });
-
-    request.addEventListener("error", () => reject(new Error("Video upload failed. Check the connection and try again.")));
-    request.addEventListener("timeout", () => reject(new Error("Video upload timed out. Try a smaller file or a stronger connection.")));
-    request.send(file);
-  });
-}
-
-function parseJsonResponse(value) {
-  try {
-    return JSON.parse(value || "{}");
-  } catch {
-    return {};
+  for (const delay of [1500, 3000, 5000, 7500, 10000]) {
+    await pause(delay);
+    try {
+      video = await postJson(appUrl(`/admin/api/episodes/${episodeId}/refresh-video`), {});
+    } catch {
+      break;
+    }
+    if (video.state !== "processing") break;
   }
+  return video;
+}
+
+const streamUploads = new Map();
+const tusChunkSize = 50 * 1024 * 1024;
+
+function rememberStreamUpload(key, upload) {
+  if (upload) streamUploads.set(key, upload);
+  else streamUploads.delete(key);
+  try {
+    if (upload) window.sessionStorage.setItem(key, JSON.stringify(upload));
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // Uploads can still resume in this page when browser storage is unavailable.
+  }
+}
+
+function readStreamUpload(key) {
+  if (streamUploads.has(key)) return streamUploads.get(key);
+  try {
+    return JSON.parse(window.sessionStorage.getItem(key) || "null");
+  } catch {
+    return null;
+  }
+}
+
+async function uploadCloudflareVideoWithProgress(episodeId, file, currentUid, onReserved, onProgress) {
+  const path = appUrl(`/admin/api/episodes/${episodeId}`);
+  const key = `afroreel-stream:${path}`;
+  const fileKey = JSON.stringify([file.name, file.size, file.lastModified]);
+  let upload = readStreamUpload(key);
+  const resume = upload && upload.fileKey === fileKey && upload.expiresAt > Date.now() &&
+    (currentUid === undefined || upload.uid === currentUid);
+  if (!resume) {
+    const reserved = await postJson(`${path}/tus-upload-url`, { uploadLength: file.size, name: file.name });
+    upload = { ...reserved, fileKey, finished: false };
+    rememberStreamUpload(key, upload);
+  }
+  onReserved(upload);
+
+  try {
+    if (!upload.finished) {
+      const offset = resume ? await readTusOffset(upload.uploadUrl, file.size) : 0;
+      await sendTusChunks(file, upload.uploadUrl, offset, onProgress);
+      upload.finished = true;
+      rememberStreamUpload(key, upload);
+    }
+  } catch (error) {
+    if (error.status === 404 || error.status === 410) {
+      // The provider can close an upload URL after accepting the last chunk.
+      const video = await postJson(`${path}/refresh-video`, {}).catch(() => null);
+      if (video?.uid === upload.uid && ["processing", "ready", "failed"].includes(video.state)) {
+        rememberStreamUpload(key, null);
+        return video;
+      }
+      rememberStreamUpload(key, null);
+      throw new Error("The upload link expired. Upload the file again to get a new link.");
+    }
+    throw new Error("Video upload interrupted. Retry with the same file to resume.");
+  }
+
+  try {
+    const video = await postJson(`${path}/cloudflare-complete`, { uid: upload.uid });
+    rememberStreamUpload(key, null);
+    return video;
+  } catch (error) {
+    if (error.status === 409) rememberStreamUpload(key, null);
+    throw error;
+  }
+}
+
+async function readTusOffset(uploadUrl, fileSize) {
+  const response = await fetch(uploadUrl, {
+    method: "HEAD",
+    headers: { "Tus-Resumable": "1.0.0" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(20_000),
+  });
+  return confirmedTusOffset(response, fileSize);
+}
+
+function confirmedTusOffset(response, fileSize) {
+  if (!response.ok) {
+    throw Object.assign(new Error("Cloudflare rejected the upload request."), { status: response.status });
+  }
+  const value = response.headers.get("Upload-Offset");
+  const offset = value && /^\d+$/.test(value) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > fileSize) {
+    throw new Error("Cloudflare did not confirm the upload offset.");
+  }
+  return offset;
+}
+
+async function sendTusChunks(file, uploadUrl, offset, onProgress) {
+  let retries = 0;
+  onProgress(Math.floor(offset / file.size * 100));
+  while (offset < file.size) {
+    const end = Math.min(file.size, offset + tusChunkSize);
+    try {
+      const response = await fetch(uploadUrl, {
+        method: "PATCH",
+        headers: {
+          "Tus-Resumable": "1.0.0",
+          "Upload-Offset": String(offset),
+          "Content-Type": "application/offset+octet-stream",
+        },
+        body: file.slice(offset, end),
+        signal: AbortSignal.timeout(180_000),
+      });
+      const confirmed = confirmedTusOffset(response, file.size);
+      if (confirmed <= offset) throw new Error("The upload has not advanced.");
+      offset = confirmed;
+      retries = 0;
+    } catch (error) {
+      const retryable = !error.status || [408, 409, 429].includes(error.status) || error.status >= 500;
+      if (!retryable || retries >= 3) throw error;
+      await pause(750 * 2 ** retries++);
+      offset = await readTusOffset(uploadUrl, file.size);
+    }
+    onProgress(Math.floor(offset / file.size * 100));
+  }
+}
+
+function pause(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function appUrl(path) {
@@ -521,16 +645,20 @@ async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
+      "accept": "application/json",
       "content-type": "application/json",
       "csrf-token": csrfToken,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(25_000),
   });
-  const payload = await response.json().catch(() => ({}));
+  const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(payload.error || response.statusText);
+    const message = typeof payload?.error === "string" ? payload.error : payload?.error?.message;
+    throw Object.assign(new Error(message || response.statusText || "Request failed."), { status: response.status });
   }
+  if (!payload) throw new Error("The admin did not return a response. Refresh the page and sign in again if needed.");
 
   return payload;
 }

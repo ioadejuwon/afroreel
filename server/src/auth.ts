@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import type { RowDataPacket } from "mysql2";
 import { config } from "./config";
@@ -32,7 +32,8 @@ type MobileUserRow = RowDataPacket & {
   coin_balance: number;
 };
 
-const mobileTokenTtlSeconds = 60 * 60 * 24 * 30;
+const mobileTokenTtlSeconds = 60 * 15;
+const refreshTokenTtlSeconds = 60 * 60 * 24 * 30;
 
 function normalizeBcryptHash(hash: string): string {
   return hash.startsWith("$2y$") ? `$2b$${hash.slice(4)}` : hash;
@@ -51,7 +52,7 @@ function fromBase64Url(value: string): string | null {
 }
 
 function signMobileTokenPayload(payload: string): string {
-  return createHmac("sha256", config.session.secret).update(payload).digest("base64url");
+  return createHmac("sha256", config.mobileTokenSecret).update(payload).digest("base64url");
 }
 
 function createMobileToken(userId: string): string {
@@ -60,6 +61,24 @@ function createMobileToken(userId: string): string {
   const signature = signMobileTokenPayload(payload);
 
   return `${payload}.${signature}`;
+}
+
+function hashRefreshToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+async function createRefreshToken(userId: string, familyId = randomUUID()): Promise<string> {
+  const token = randomBytes(48).toString("base64url");
+  await pool.execute(
+    `INSERT INTO mobile_refresh_tokens (user_id, token_hash, family_id, expires_at)
+     VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+    [userId, hashRefreshToken(token), familyId, refreshTokenTtlSeconds],
+  );
+  return token;
+}
+
+async function createMobileSession(user: MobileSessionUser): Promise<{ token: string; refreshToken: string; user: MobileSessionUser }> {
+  return { token: createMobileToken(user.userId), refreshToken: await createRefreshToken(user.userId), user };
 }
 
 function verifyMobileToken(token: string): string | null {
@@ -205,7 +224,7 @@ export async function createMobileUser(input: {
   password: string;
   name: string;
   username: string;
-}): Promise<{ token: string; user: MobileSessionUser }> {
+}): Promise<{ token: string; refreshToken: string; user: MobileSessionUser }> {
   const { email, password, name, username } = input;
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedUsername = normalizeUsername(username);
@@ -223,13 +242,10 @@ export async function createMobileUser(input: {
     throw new Error("Could not create mobile user.");
   }
 
-  return {
-    token: createMobileToken(user.userId),
-    user,
-  };
+  return createMobileSession(user);
 }
 
-export async function attemptMobileLogin(identifier: string, password: string): Promise<{ token: string; user: MobileSessionUser } | null> {
+export async function attemptMobileLogin(identifier: string, password: string): Promise<{ token: string; refreshToken: string; user: MobileSessionUser } | null> {
   const normalizedIdentifier = identifier.trim().toLowerCase();
   const [rows] = await pool.execute<MobileCredentialsRow[]>(
     `SELECT id, user_id, name, username, email, password_hash, coin_balance
@@ -252,10 +268,50 @@ export async function attemptMobileLogin(identifier: string, password: string): 
 
   await pool.execute("UPDATE mobile_users SET last_login_at = NOW() WHERE id = ?", [credentials.id]);
 
-  return {
-    token: createMobileToken(credentials.user_id),
-    user: normalizeMobileUser(credentials),
-  };
+  return createMobileSession(normalizeMobileUser(credentials));
+}
+
+export async function rotateMobileRefreshToken(rawToken: string): Promise<{
+  token: string;
+  refreshToken: string;
+  user: MobileSessionUser;
+} | null> {
+  const tokenHash = hashRefreshToken(rawToken);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute<RowDataPacket[]>(
+      `SELECT user_id, family_id FROM mobile_refresh_tokens
+        WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > NOW() LIMIT 1 FOR UPDATE`,
+      [tokenHash],
+    );
+    const row = rows[0] as { user_id: string; family_id: string } | undefined;
+    if (!row) {
+      await connection.rollback();
+      return null;
+    }
+    const nextRawToken = randomBytes(48).toString("base64url");
+    const nextHash = hashRefreshToken(nextRawToken);
+    await connection.execute("UPDATE mobile_refresh_tokens SET revoked_at = NOW(), replaced_by_hash = ? WHERE token_hash = ?", [nextHash, tokenHash]);
+    await connection.execute(
+      `INSERT INTO mobile_refresh_tokens (user_id, token_hash, family_id, expires_at)
+       VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+      [row.user_id, nextHash, row.family_id, refreshTokenTtlSeconds],
+    );
+    await connection.commit();
+    const user = await findCurrentMobileUser(row.user_id);
+    if (!user) return null;
+    return { token: createMobileToken(user.userId), refreshToken: nextRawToken, user };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function revokeMobileRefreshToken(rawToken: string): Promise<void> {
+  await pool.execute("UPDATE mobile_refresh_tokens SET revoked_at = COALESCE(revoked_at, NOW()) WHERE token_hash = ?", [hashRefreshToken(rawToken)]);
 }
 
 export async function updateMobileUserProfile(

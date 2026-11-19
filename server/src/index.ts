@@ -3,12 +3,16 @@ import express, { type ErrorRequestHandler } from "express";
 import session from "express-session";
 import createMySQLSession from "express-mysql-session";
 import csrf from "csurf";
-import { config, isProduction } from "./config";
-import { attachCurrentAdmin, ensureMobileAuthSchema } from "./auth";
+import { apiRateLimit, authRateLimit, requestContext, securityHeaders } from "./security";
+import { allowLocalMedia, config, isProduction } from "./config";
+import { MediaError } from "./cloudflare";
+import { pool } from "./db";
+import { attachCurrentAdmin } from "./auth";
 import { adminRouter } from "./routes/admin";
 import { apiRouter } from "./routes/api";
 import { ensureUploadDirs, uploadRoot } from "./uploads";
-import { ensureContentSchema } from "./content";
+import { healthRouter } from "./routes/health";
+import { webhookRouter } from "./routes/webhooks";
 
 const app = express();
 const projectRoot = process.cwd();
@@ -40,11 +44,22 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(requestContext);
+app.use(securityHeaders);
+for (const basePath of basePaths) {
+  app.use(withBasePath(basePath, "/webhooks"), express.raw({ type: "application/json", limit: "1mb" }), webhookRouter);
+}
 app.use(express.urlencoded({ extended: false, limit: "3mb" }));
 app.use(express.json({ limit: "3mb" }));
 for (const basePath of basePaths) {
-  app.use(withBasePath(basePath, "/uploads"), express.static(uploadRoot(), { immutable: true, maxAge: "30d" }));
-  app.use(withBasePath(basePath, "/api"), apiRouter);
+  if (allowLocalMedia) {
+    app.use(withBasePath(basePath, "/uploads"), express.static(uploadRoot(), { immutable: true, maxAge: "30d" }));
+  }
+  app.use(withBasePath(basePath, "/health"), healthRouter);
+  app.use(withBasePath(basePath, "/api/v1/auth"), authRateLimit);
+  app.use(withBasePath(basePath, "/api/v1"), apiRateLimit, apiRouter);
+  app.use(withBasePath(basePath, "/api/auth"), authRateLimit);
+  app.use(withBasePath(basePath, "/api"), apiRateLimit, apiRouter);
 }
 
 app.use(
@@ -54,12 +69,6 @@ app.use(
     resave: false,
     saveUninitialized: false,
     store: new MySQLStore({
-      host: config.db.host,
-      port: config.db.port,
-      user: config.db.user,
-      password: config.db.password,
-      database: config.db.database,
-      charset: "utf8mb4_bin",
       createDatabaseTable: true,
       schema: {
         tableName: "admin_sessions",
@@ -69,7 +78,7 @@ app.use(
           data: "data",
         },
       },
-    }),
+    }, pool),
     cookie: {
       httpOnly: true,
       sameSite: "lax",
@@ -114,6 +123,15 @@ const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
     return;
   }
 
+  if (error instanceof MediaError) {
+    if (req.path.includes("/api/") || req.accepts(["html", "json"]) === "json") {
+      res.status(error.status).json({ error: error.message });
+    } else {
+      res.status(error.status).type("text").send(error.message);
+    }
+    return;
+  }
+
   console.error(error);
   if (req.path.includes("/api/")) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Internal server error" });
@@ -126,9 +144,7 @@ const errorHandler: ErrorRequestHandler = (error, req, res, next) => {
 app.use(errorHandler);
 
 async function start(): Promise<void> {
-  await ensureUploadDirs();
-  await ensureMobileAuthSchema();
-  await ensureContentSchema();
+  if (allowLocalMedia) await ensureUploadDirs();
 
   app.listen(config.port, () => {
     console.log(`AfroReel admin server listening at http://localhost:${config.port}${withBasePath(config.basePath, "/admin")}`);

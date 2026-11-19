@@ -1,0 +1,13 @@
+<div class="upload-cell">
+  <label class="video-dropzone" data-video-dropzone>
+    <input type="file" accept="video/*" data-video-file />
+    <span>Video file</span>
+    <strong data-video-file-name>Drop video here or choose file</strong>
+    <em>MP4 or supported video file</em>
+  </label>
+  <div class="upload-actions">
+    <button class="primary-button" type="button" data-upload-video><%= video.activeReady ? "Replace video" : "Upload" %></button>
+    <button class="ghost-button" type="button" data-refresh-video <%= video.canRefresh ? "" : "disabled" %>>Refresh status</button>
+  </div>
+  <span class="form-status" role="status" data-upload-status><%= video.error || "" %></span>
+</div>

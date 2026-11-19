@@ -3,12 +3,12 @@
     "name": "AfroReel",
     "slug": "afroreel",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0A0A0F",
-    "splash": {
-      "backgroundColor": "#0A0A0F"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -19,7 +19,8 @@
       "requireFullScreen": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Required for profile photo.",
-        "NSPhotoLibraryUsageDescription": "Required to select a profile photo."
+        "NSPhotoLibraryUsageDescription": "Required to select a profile photo.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -28,15 +29,18 @@
       },
       "package": "com.afroreel.app",
       "versionCode": 1,
-      "permissions": [
-        "INTERNET",
-        "READ_EXTERNAL_STORAGE"
-      ]
+      "permissions": ["INTERNET"]
     },
     "web": {},
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0A0A0F"
+        }
+      ],
       "expo-font",
       "expo-video"
     ],

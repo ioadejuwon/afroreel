@@ -1422,6 +1422,12 @@ th {
   background-size: cover;
 }
 
+img.poster {
+  display: block;
+  width: 100%;
+  object-fit: cover;
+}
+
 .poster.p2 {
   background: #263033;
 }
@@ -1436,6 +1442,25 @@ th {
 
 .series-detail-panel {
   margin-bottom: 14px;
+}
+
+.poster-replace-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.poster-replace-form .poster-dropzone {
+  min-height: 96px;
+  padding: 14px;
+}
+
+.poster-replace-actions {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
 }
 
 .series-detail-summary {

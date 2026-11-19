@@ -2,11 +2,6 @@ declare module "express-mysql-session" {
   import type session from "express-session";
 
   interface StoreOptions {
-    host: string;
-    port: number;
-    user: string;
-    password: string;
-    database: string;
     charset?: string;
     createDatabaseTable?: boolean;
     schema?: {
@@ -20,7 +15,7 @@ declare module "express-mysql-session" {
   }
 
   function createMySQLSession(sessionModule: typeof session): {
-    new (options: StoreOptions): session.Store;
+    new (options: StoreOptions, connection: import("mysql2/promise").Pool): session.Store;
   };
 
   export = createMySQLSession;
