@@ -32,6 +32,6 @@
       window.AFROREEL_INITIAL_VIEW = <%- JSON.stringify(initialView || "") %>;
       window.AFROREEL_POLL_STREAM = <%= pollStreamLocally %>;
     </script>
-    <script src="<%= basePath %>/admin/app.js"></script>
+    <script src="<%= basePath %>/admin/app.js?v=<%= adminScriptVersion %>"></script>
   </body>
 </html>

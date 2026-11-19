@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import express, { type ErrorRequestHandler } from "express";
 import session from "express-session";
@@ -36,6 +38,9 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.locals.basePath = defaultBasePath;
 app.locals.adminPath = withBasePath(defaultBasePath, "/admin");
+app.locals.adminScriptVersion = createHash("sha256")
+  .update(readFileSync(path.join(adminAssetsDir, "app.js")))
+  .digest("hex").slice(0, 16);
 
 app.use((req, res, next) => {
   const basePath = requestBasePath(req.originalUrl);

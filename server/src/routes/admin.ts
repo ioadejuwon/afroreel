@@ -61,7 +61,7 @@ async function renderAdmin(req: Request, res: Response, options: {
     : null;
   const selectedEpisodes = selectedSeries ? episodes.filter((episode) => episode.series_id === selectedSeries.id) : [];
 
-  res.status(options.status ?? 200).render("admin", {
+  res.set("Cache-Control", "private, no-store").status(options.status ?? 200).render("admin", {
     admin: req.admin,
     csrfToken: req.csrfToken(),
     series,
@@ -353,7 +353,7 @@ adminRouter.post("/api/episodes/:episodeId/tus-upload-url", requireAdmin, async 
 
 adminRouter.post("/api/episodes/:episodeId/local-video", requireAdmin, async (req, res, next) => {
   try {
-    if (!allowLocalMedia) throw new MediaError(404, "Local uploads are available only in development.");
+    if (!allowLocalMedia) throw new MediaError(404, "This page is using the old video uploader. Reload the page, then choose the file again to upload to Cloudflare Stream.");
     const episodeId = paramNumber(req.params.episodeId);
     const contentLength = Number.parseInt(req.header("content-length") || "0", 10);
     const originalName = req.header("x-file-name") || `episode-${episodeId}.mp4`;
