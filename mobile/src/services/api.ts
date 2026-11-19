@@ -1,12 +1,10 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
-declare const process: { env?: Record<string, string | undefined> };
+declare const process: { env: { EXPO_PUBLIC_API_BASE_URL?: string } };
 declare const __DEV__: boolean;
 
 const API_TIMEOUT_MS = 10000;
-export const AUTH_TOKEN_STORAGE_KEY = 'afroreel.authToken';
-export const AUTH_REFRESH_TOKEN_STORAGE_KEY = 'afroreel.refreshToken';
 
 let apiAuthToken: string | null = null;
 let apiRefreshToken: string | null = null;
@@ -27,7 +25,7 @@ function getConfiguredApiBaseUrl(): string | undefined {
     expoConfig?: { extra?: { apiBaseUrl?: string } };
   };
 
-  return process.env?.EXPO_PUBLIC_API_BASE_URL ?? constants.expoConfig?.extra?.apiBaseUrl;
+  return process.env.EXPO_PUBLIC_API_BASE_URL || constants.expoConfig?.extra?.apiBaseUrl;
 }
 
 function createLocalApiBaseUrl(): string {
@@ -43,6 +41,13 @@ if (!__DEV__ && !configuredApiBaseUrl?.startsWith('https://')) {
 }
 export const API_BASE_URL = configuredApiBaseUrl || createLocalApiBaseUrl();
 const API_ORIGIN = API_BASE_URL.match(/^https?:\/\/[^/]+/)?.[0] ?? API_BASE_URL;
+
+// Keep the existing local session when switching back to the default development server.
+const storageSuffix = configuredApiBaseUrl
+  ? '.' + configuredApiBaseUrl.replace(/[^a-zA-Z0-9.-]/g, char => '_' + char.charCodeAt(0).toString(16) + '_')
+  : '';
+export const AUTH_TOKEN_STORAGE_KEY = 'afroreel.authToken' + storageSuffix;
+export const AUTH_REFRESH_TOKEN_STORAGE_KEY = 'afroreel.refreshToken' + storageSuffix;
 
 export function setApiAuthToken(token: string | null): void {
   apiAuthToken = token;

@@ -1111,7 +1111,7 @@ function AuthScreen({
     setAuthError('');
 
     try {
-      const payload = await fetchJson<{ token: string; refreshToken: string; user: AuthUser }>(
+      const payload = await fetchJson<{ token: string; refreshToken?: string; user: AuthUser }>(
         isCreatingAccount ? '/api/auth/signup' : '/api/auth/signin',
         {
           method: 'POST',
@@ -1123,12 +1123,14 @@ function AuthScreen({
         },
       );
 
-      setApiAuthToken(payload.token);
-      setApiRefreshToken(payload.refreshToken);
       await Promise.all([
         SecureStore.setItemAsync(AUTH_TOKEN_STORAGE_KEY, payload.token),
-        SecureStore.setItemAsync(AUTH_REFRESH_TOKEN_STORAGE_KEY, payload.refreshToken),
+        payload.refreshToken
+          ? SecureStore.setItemAsync(AUTH_REFRESH_TOKEN_STORAGE_KEY, payload.refreshToken)
+          : SecureStore.deleteItemAsync(AUTH_REFRESH_TOKEN_STORAGE_KEY),
       ]);
+      setApiAuthToken(payload.token);
+      setApiRefreshToken(payload.refreshToken ?? null);
       onUserLoaded(payload.user);
       onComplete(payload.token, payload.user);
     } catch (error) {
