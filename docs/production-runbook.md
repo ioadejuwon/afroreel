@@ -4,8 +4,8 @@
 
 | Environment | API | Database | Cloudflare | Mobile channel |
 | --- | --- | --- | --- | --- |
-| Staging | `https://staging-api.rellowmedia.com` | Dedicated staging schema | Dedicated test Stream/Images assets | `preview` |
-| Production | `https://rellowmedia.com/afroreel` | Dedicated production schema | Production Stream/Images assets | `production` |
+| Staging | `https://staging-api.rellowmedia.com` | Dedicated staging schema | Dedicated test Stream/Images assets | Unassigned |
+| Production | `https://rellowmedia.com/afroreel` | Dedicated production schema | Production Stream/Images assets | `preview` and `production` |
 
 Before enabling deployment, confirm cPanel provides SSH, a persistent Node 22 application, environment variables, MySQL, TLS proxying, logs, cron, and a Passenger restart mechanism. If any are unavailable, deploy the API to managed Node hosting while retaining Namecheap DNS.
 

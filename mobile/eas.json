@@ -14,11 +14,17 @@
       "distribution": "internal",
       "channel": "preview",
       "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://rellowmedia.com/afroreel"
+      },
       "autoIncrement": true
     },
     "production": {
       "channel": "production",
       "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://rellowmedia.com/afroreel"
+      },
       "autoIncrement": true
     }
   },

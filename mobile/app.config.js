@@ -1,9 +1,9 @@
-const isStoreProfile = ['preview', 'production'].includes(process.env.EAS_BUILD_PROFILE || '');
+const isStoreProfile = process.env.EAS_BUILD_PROFILE === 'production';
 const iosAdMobAppId = process.env.ADMOB_IOS_APP_ID || (isStoreProfile ? '' : 'ca-app-pub-3940256099942544~1458002511');
 const androidAdMobAppId = process.env.ADMOB_ANDROID_APP_ID || (isStoreProfile ? '' : 'ca-app-pub-3940256099942544~3347511713');
 
 if (isStoreProfile && (!iosAdMobAppId || !androidAdMobAppId)) {
-  throw new Error('Preview and production builds require ADMOB_IOS_APP_ID and ADMOB_ANDROID_APP_ID.');
+  throw new Error('Production builds require ADMOB_IOS_APP_ID and ADMOB_ANDROID_APP_ID.');
 }
 
 module.exports = ({ config }) => ({
