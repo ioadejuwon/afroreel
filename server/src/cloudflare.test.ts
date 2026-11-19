@@ -126,7 +126,7 @@ describe("Cloudflare Images", () => {
     }));
     await expect(verifyPosterImage(id)).rejects.toMatchObject({ status: 422 });
 
-    const variants = ["poster-card", "poster-detail", "admin-preview"].map(
+    const variants = ["postercard", "posterdetail", "adminpreview"].map(
       (variant) => `https://imagedelivery.net/test-hash/${id}/${variant}`,
     );
     request.mockResolvedValueOnce(Response.json({

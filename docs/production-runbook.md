@@ -5,7 +5,7 @@
 | Environment | API | Database | Cloudflare | Mobile channel |
 | --- | --- | --- | --- | --- |
 | Staging | `https://staging-api.rellowmedia.com` | Dedicated staging schema | Dedicated test Stream/Images assets | `preview` |
-| Production | `https://api.rellowmedia.com` | Dedicated production schema | Production Stream/Images assets | `production` |
+| Production | `https://rellowmedia.com/afroreel` | Dedicated production schema | Production Stream/Images assets | `production` |
 
 Before enabling deployment, confirm cPanel provides SSH, a persistent Node 22 application, environment variables, MySQL, TLS proxying, logs, cron, and a Passenger restart mechanism. If any are unavailable, deploy the API to managed Node hosting while retaining Namecheap DNS.
 
@@ -14,6 +14,14 @@ Before enabling deployment, confirm cPanel provides SSH, a persistent Node 22 ap
 Create protected `staging` and `production` environments. Require manual reviewers for production and define `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, `DEPLOY_SSH_KEY`, and `HEALTHCHECK_URL` secrets in each environment. Production deployment is permitted only from a `v*` tag or an explicitly approved workflow dispatch.
 
 ## Deployment
+
+### cPanel Git Version Control
+
+The production checkout is `~/public_html/afroreel` on branch `main`. Save the production settings in its `.env`, including `PUBLIC_BASE_URL=https://rellowmedia.com/afroreel` and `APP_BASE_PATH=/afroreel`. Set the Node 22 application startup file to `dist/server/src/index.js`.
+
+In **Git Version Control → Manage → Pull or Deploy**, select **Update from Remote**, review the HEAD commit, then select **Deploy HEAD Commit**. The deploy task builds that revision in a private directory under `~/afroreel-releases`, saves a MySQL dump there before applying migrations, switches Passenger to the compiled build, and checks the public readiness endpoint. Each release records the previous Passenger entry for recovery. Keep the active release directory while it is serving traffic.
+
+### SSH workflow
 
 1. Back up MySQL using credentials stored on the host, never in Git.
 2. Deploy the exact Git revision.
@@ -27,7 +35,7 @@ Create protected `staging` and `production` environments. Require manual reviewe
 Use separate Cloudflare resources for staging and production. Put these variables in the API server's environment.
 
 - Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` with Stream Write permission, and `CLOUDFLARE_STREAM_CUSTOMER_CODE` from Stream's delivery hostname. Create a [Stream signing key](https://developers.cloudflare.com/stream/viewing-videos/securing-your-stream/#option-3-using-a-signing-key-to-create-signed-tokens) and save its returned `id` and base64 `pem` under `CLOUDFLARE_STREAM_KEY_ID` and `CLOUDFLARE_STREAM_PRIVATE_KEY_PEM_BASE64`.
-- Enable [hosted Cloudflare Images](https://developers.cloudflare.com/images/pricing/). Set `CLOUDFLARE_IMAGES_API_TOKEN` with Images Write permission and `CLOUDFLARE_IMAGES_DELIVERY_HASH` from Images → Developer Resources. Create `poster-card` (360 × 540), `poster-detail` (720 × 1080), and `admin-preview` (240 × 360), with Cover fit and metadata removed. Series posters use public delivery. [Cloudflare variant setup](https://developers.cloudflare.com/images/optimization/hosted-images/create-variants/)
+- Enable [hosted Cloudflare Images](https://developers.cloudflare.com/images/pricing/). Set `CLOUDFLARE_IMAGES_API_TOKEN` with Images Write permission and `CLOUDFLARE_IMAGES_DELIVERY_HASH` from Images → Developer Resources. Create `postercard` (360 × 540), `posterdetail` (720 × 1080), and `adminpreview` (240 × 360), with Cover fit and metadata removed. Series posters use public delivery. [Cloudflare variant setup](https://developers.cloudflare.com/images/optimization/hosted-images/create-variants/)
 - Register each account's Stream VOD webhook at its own HTTPS API endpoint, `/webhooks/cloudflare/stream`. Copy the returned secret into `CLOUDFLARE_STREAM_WEBHOOK_SECRET`. Test with a new upload and leave the production webhook pointed at the production API during staging tests. [Cloudflare webhook setup](https://developers.cloudflare.com/stream/manage-video-library/using-webhooks/)
 
 ### Local media smoke test

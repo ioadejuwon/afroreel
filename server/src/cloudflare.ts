@@ -11,7 +11,7 @@ export class MediaError extends Error {
 export const STREAM_PLAYBACK_TTL_SECONDS = 60 * 60;
 export const STREAM_MAX_DURATION_SECONDS = 30 * 60;
 
-const POSTER_VARIANTS = ["poster-card", "poster-detail", "admin-preview"] as const;
+const POSTER_VARIANTS = ["postercard", "posterdetail", "adminpreview"] as const;
 type PosterVariant = typeof POSTER_VARIANTS[number];
 
 const uidSchema = z.string().regex(/^[0-9a-z]{32}$/i);
@@ -170,7 +170,7 @@ export async function verifyPosterImage(imageId: string): Promise<void> {
     const url = imageDeliveryUrl(imageId, variant);
     return !url || !image.variants?.includes(url);
   })) {
-    throw new MediaError(503, "Set up the poster-card, poster-detail, and admin-preview variants in Cloudflare Images.");
+    throw new MediaError(503, "Set up the postercard, posterdetail, and adminpreview variants in Cloudflare Images.");
   }
 }
 

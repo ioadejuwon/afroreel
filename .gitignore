@@ -1,5 +1,9 @@
 # Dependencies
 node_modules/
+# cPanel manages these files in the application checkout.
+/node_modules
+/.htaccess
+/tmp/
 mobile/node_modules/
 
 # Build output

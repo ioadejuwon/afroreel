@@ -2,7 +2,7 @@
   <% if (!selectedSeries) { %>
     <article class="empty-card">Series not found.</article>
   <% } else { %>
-    <% const previewUrl = posterUrl(selectedSeries, "admin-preview"); %>
+    <% const previewUrl = posterUrl(selectedSeries, "adminpreview"); %>
     <div class="section-head split-head">
       <div>
         <h2><%= selectedSeries.title %></h2>

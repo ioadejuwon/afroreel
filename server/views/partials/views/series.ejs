@@ -13,7 +13,7 @@
       <article class="empty-card">No series yet.</article>
     <% } %>
     <% series.forEach((item) => { %>
-      <% const previewUrl = posterUrl(item, "admin-preview"); %>
+      <% const previewUrl = posterUrl(item, "adminpreview"); %>
       <article class="series-card">
         <% if (previewUrl) { %>
           <img class="poster" src="<%= previewUrl %>" alt="" loading="lazy" />

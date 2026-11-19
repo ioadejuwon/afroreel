@@ -1,0 +1,4 @@
+---
+deployment:
+  tasks:
+    - /bin/bash "$HOME/public_html/afroreel/scripts/deploy-cpanel.sh"
