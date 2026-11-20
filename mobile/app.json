@@ -13,6 +13,7 @@
       "policy": "appVersion"
     },
     "orientation": "portrait",
+    "icon": "./assets/icons/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0A0A0F",
     "assetBundlePatterns": [
@@ -31,6 +32,7 @@
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/adaptive-foreground.png",
         "backgroundColor": "#0A0A0F"
       },
       "package": "com.afroreel.app",
@@ -41,6 +43,14 @@
     },
     "web": {},
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "# Room creates the WorkManager database by reflection during Android startup.\n-keep class androidx.work.impl.WorkDatabase_Impl { public <init>(); }"
+          }
+        }
+      ],
       "expo-router",
       "expo-secure-store",
       [
