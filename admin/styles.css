@@ -120,7 +120,7 @@ textarea {
   place-items: center;
   border-radius: 8px;
   background: var(--mint);
-  color: var(--green);
+  color: var(--gold);
   font-weight: 700;
 }
 
@@ -150,7 +150,7 @@ textarea {
   font-weight: 500;
 }
 .nav-item:hover, .nav-item.active { background: #1e1f17; }
-.nav-item.active { color: var(--green); font-weight: 650; }
+.nav-item.active { color: var(--gold); font-weight: 650; }
 .sidebar-card {
   display: flex;
   align-items: center;
@@ -187,7 +187,7 @@ textarea {
 }
 
 .meter span {
-  background: var(--green);
+  background: var(--gold);
 }
 
 .workspace { min-width: 0; padding: 0 var(--gutter) 36px; }
@@ -219,7 +219,7 @@ textarea {
 
 .eyebrow {
   margin: 0 0 4px;
-  color: var(--green);
+  color: var(--gold);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.11em;
@@ -301,7 +301,7 @@ h2 {
 
 .primary-button {
   border: 0;
-  background: var(--green);
+  background: var(--gold);
   color: #101110;
   font-weight: 600;
   box-shadow: none;
@@ -347,7 +347,7 @@ h2 {
 }
 
 .dashboard-hero h2 span {
-  color: var(--green);
+  color: var(--gold);
   font-weight: 400;
 }
 
@@ -442,7 +442,7 @@ th {
 }
 
 .metric-card.is-featured::before {
-  background: var(--green);
+  background: var(--gold);
 }
 
 .ops-strip {
@@ -571,7 +571,7 @@ th {
 .focus-card .primary-button {
   width: fit-content;
   margin-top: 8px;
-  background: var(--green);
+  background: var(--gold);
   color: #101110;
 }
 
@@ -616,7 +616,7 @@ th {
 }
 
 .swatch.green {
-  background: var(--green);
+  background: var(--gold);
 }
 
 table {
@@ -1113,7 +1113,7 @@ th {
 .library-metrics dt { color: var(--muted); font-size: 13px; }
 .library-metrics dd { margin: 5px 0 0; font-size: 28px; font-weight: 680; line-height: 1.1; }
 .library-metrics [data-count="draft"] { color: #f7b43c; }
-.library-metrics [data-count="live"] { color: var(--green); }
+.library-metrics [data-count="live"] { color: var(--gold); }
 .library-filters {
   display: inline-flex;
   max-width: 100%;
@@ -1132,7 +1132,7 @@ th {
 .series-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cover-badge { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 99px; background: #0d0e0be8; color: #f7f7ee; font-size: 12px; font-weight: 680; }
 .cover-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #f7b43c; }
-[data-series-status="live"] .cover-badge::before { background: var(--green); }
+[data-series-status="live"] .cover-badge::before { background: var(--gold); }
 .series-card-body { flex: 1; display: flex; flex-direction: column; gap: 15px; padding: clamp(14px, 1.25vw, 20px); }
 .card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
 .card-heading h2 { font-size: clamp(17px, 1.45vw, 22px); line-height: 1.22; font-weight: 700; letter-spacing: -.025em; overflow-wrap: anywhere; }
@@ -1165,7 +1165,7 @@ th {
 .card-menu-items :is(a, button):hover { background: #303129; }
 .card-menu-items .delete-series { color: #ff9382; }
 .card-menu-items form { margin: 0 0 4px; padding-bottom: 4px; border-bottom: 1px solid #383930; }
-.shell :is(a, button, summary):focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.shell :is(a, button, summary):focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .delete-dialog { width: min(440px, calc(100% - 32px)); padding: 24px; border: 1px solid #414239; border-radius: 16px; background: #1b1c17; color: var(--text); box-shadow: var(--shadow); }
 .delete-dialog::backdrop { background: #000a; }
 .delete-dialog p { margin: 12px 0 22px; color: #c1c2b6; line-height: 1.5; overflow-wrap: anywhere; }

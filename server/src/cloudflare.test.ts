@@ -5,6 +5,8 @@ import {
   createPlaybackUrl,
   createThumbnailUrl,
   createTusUpload,
+  episodePreviewId,
+  importEpisodePreview,
   parseStreamVideo,
   verifyPosterImage,
   verifyStreamWebhook,
@@ -106,12 +108,34 @@ describe("Cloudflare Stream", () => {
     expect(parseStreamVideo({ ...video, status: { state: "ready" } })).toMatchObject({
       state: "ready", durationSeconds: 13, thumbnailTimeMs: 1325,
     });
+    expect(parseStreamVideo({ ...video, thumbnailTimestampPct: 0.5, status: { state: "ready" } })?.thumbnailTimeMs).toBe(6625);
     expect(parseStreamVideo({ ...video, requireSignedURLs: false, status: { state: "ready" } })?.state).toBe("failed");
     expect(parseStreamVideo({ uid, duration: -1, status: { state: "error" } })?.state).toBe("failed");
   });
 });
 
 describe("Cloudflare Images", () => {
+  it.each([false, true])("imports the signed still as a separate public image, including retries (%s)", async (alreadyImported) => {
+    const id = episodePreviewId(uid, 1325);
+    const preview = `https://imagedelivery.net/test-hash/${id}/public`;
+    const request = vi.fn(async (_url: string, _options: RequestInit) => Response.json({
+      success: true, result: { id, requireSignedURLs: false, variants: [preview] },
+    }));
+    if (alreadyImported) request.mockResolvedValueOnce(new Response(null, { status: 409 }));
+    vi.stubGlobal("fetch", request);
+    await expect(importEpisodePreview(uid, 1325)).resolves.toBe(preview);
+    const [url, options] = request.mock.calls[0];
+    expect(url).toContain("/images/v1");
+    const form = options.body as FormData;
+    expect(form.get("id")).toBe(id);
+    expect(form.get("requireSignedURLs")).toBe("false");
+    const source = new URL(String(form.get("url")));
+    expect(source.pathname).toMatch(/\/thumbnails\/thumbnail\.jpg$/);
+    expect(source.searchParams.get("time")).toBe("1.325s");
+    expect(request).toHaveBeenCalledTimes(alreadyImported ? 2 : 1);
+    if (alreadyImported) expect(request.mock.calls[1][0]).toMatch(new RegExp(id + "$"));
+  });
+
   it("uses the Images token and verifies a confirmed upload with the configured variants", async () => {
     const id = "test-image";
     const request = vi.fn(async (_url: string, _options: RequestInit) => Response.json({
