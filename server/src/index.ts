@@ -57,6 +57,7 @@ for (const basePath of basePaths) {
 app.use(express.urlencoded({ extended: false, limit: "3mb" }));
 app.use(express.json({ limit: "3mb" }));
 for (const basePath of basePaths) {
+  app.use(withBasePath(basePath, "/admin/icons"), express.static(path.join(adminAssetsDir, "icons"), { index: false }));
   if (allowLocalMedia) {
     app.use(withBasePath(basePath, "/uploads"), express.static(uploadRoot(), { immutable: true, maxAge: "30d" }));
   }
