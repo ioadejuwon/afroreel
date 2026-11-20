@@ -26,28 +26,28 @@ export default function SeriesDetailScreen({ series, onBack, onStartWatching, on
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastFirst, setLastFirst] = useState(false);
-  const requestId = useRef(0);
+  const requests = useRef({ latest: 0 }).current;
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
   const loadEpisodes = useCallback(async (refresh = false) => {
-    const id = ++requestId.current;
+    const id = ++requests.latest;
     setFailed(false);
     setRefreshing(refresh);
     try {
       const result = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${series.databaseId}/episodes`);
-      if (id === requestId.current) setEpisodes(result.episodes);
+      if (id === requests.latest) setEpisodes(result.episodes);
     } catch {
-      if (id === requestId.current) setFailed(true);
+      if (id === requests.latest) setFailed(true);
     } finally {
-      if (id === requestId.current) setRefreshing(false);
+      if (id === requests.latest) setRefreshing(false);
     }
-  }, [series.databaseId]);
+  }, [requests, series.databaseId]);
 
   useEffect(() => {
     void loadEpisodes();
-    return () => { requestId.current++; };
-  }, [loadEpisodes]);
+    return () => { requests.latest++; };
+  }, [loadEpisodes, requests]);
 
   const firstEpisode = episodes?.[0];
   const count = episodes?.length ?? series.episodeCount;

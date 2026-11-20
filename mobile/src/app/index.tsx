@@ -5,7 +5,6 @@ import * as SecureStore from 'expo-secure-store';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   Alert,
-  Image,
   ImageBackground,
   ImageSourcePropType,
   PanResponder,
