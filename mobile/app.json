@@ -38,6 +38,7 @@
       "package": "com.afroreel.app",
       "versionCode": 1,
       "permissions": [
+        "INTERNET",
         "INTERNET"
       ]
     },
@@ -65,6 +66,9 @@
     "scheme": "afroreel",
     "experiments": {
       "typedRoutes": true
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8cd3dde0-5d63-418c-b9fa-d3726f0b38b0"
     }
   }
 }
