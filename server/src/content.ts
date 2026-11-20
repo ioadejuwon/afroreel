@@ -3,6 +3,7 @@ import { type RowDataPacket, type ResultSetHeader } from "mysql2";
 import { MediaError, type StreamVideo } from "./cloudflare";
 import { allowLocalMedia } from "./config";
 import { pool } from "./db";
+import { ensureStreamPreview } from "./episode-previews";
 
 export type SeriesStatus = "draft" | "live";
 export type EpisodeStatus = "draft" | "processing" | "live";
@@ -1124,6 +1125,7 @@ export async function applyStreamVideoStatus(video: StreamVideo): Promise<void> 
       WHERE ${currentUpload}`,
     [video.uid, video.durationSeconds, video.thumbnailTimeMs, video.uid, video.uid],
   );
+  await ensureStreamPreview(video.uid);
 }
 
 export async function getEpisodeForPlayback(episodeIdentifier: string | number, userId: string): Promise<EpisodeRow | null> {

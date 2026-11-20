@@ -22,6 +22,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/colors';
+import SeriesDetailScreen from '@/screens/SeriesDetailScreen';
+import type { Drama } from '@/types/series.types';
 import { Radius, SafeArea, Screen, Shadow, Size, Spacing } from '@/constants/layout';
 import {
   AUTH_REFRESH_TOKEN_STORAGE_KEY,
@@ -44,28 +46,6 @@ import type {
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
-type Drama = {
-  id: string;
-  seriesId: string;
-  databaseId: number;
-  title: string;
-  genre: string;
-  tags: string[];
-  episodeCount: number;
-  posterGradient: readonly [string, string];
-  posterImage?: ImageSourcePropType;
-  posterCardImage?: ImageSourcePropType;
-  mood: string;
-  progress?: number;
-  progressSeconds?: number;
-  isFree?: boolean;
-  isLocked?: boolean;
-  freeEpisodeCount?: number;
-  latestEpisodeAt?: string | null;
-  rank?: number;
-  status?: 'Ongoing' | 'Completed';
-};
-
 type Tab = 'Home' | 'Discover' | 'Wallet' | 'Alerts' | 'Profile';
 type PlayerEpisode = {
   id?: string;
@@ -74,8 +54,6 @@ type PlayerEpisode = {
   number: number;
   title: string;
   hook: string;
-  thumbnailUrl: string | null;
-  progress: number;
   isLocked: boolean;
   isFree?: boolean;
   coinCost?: number;
@@ -211,8 +189,6 @@ function mapApiEpisode(item: ApiEpisode): PlayerEpisode {
     number: item.episodeNumber,
     title: item.title,
     hook: item.hook ?? '',
-    thumbnailUrl: resolveMediaUrl(item.thumbnailUrl ?? null),
-    progress: item.progressSeconds > 0 ? 35 : 0,
     isLocked: item.isLocked,
     isFree: item.isFree,
     coinCost: item.coinCost,
@@ -322,7 +298,6 @@ export default function HomeScreen() {
       setCatalogError('');
     } catch (error) {
       setCatalogError(error instanceof Error ? error.message : 'Could not load local API data.');
-      applySeriesCatalog([]);
     } finally {
       setIsRefreshingCatalog(false);
     }
@@ -472,6 +447,7 @@ export default function HomeScreen() {
   if (activeView === 'series-detail' && selectedSeries) {
     return (
       <SeriesDetailScreen
+        key={selectedSeries.seriesId}
         series={selectedSeries}
         onBack={() => setActiveView('tabs')}
         onStartWatching={(episodeId) => openPlayer(selectedSeries, episodeId)}
@@ -2843,190 +2819,6 @@ function PlayerScreen({
   );
 }
 
-function SeriesDetailScreen({
-  series,
-  onBack,
-  onStartWatching,
-  onRefreshCatalog,
-  isRefreshingCatalog,
-}: {
-  series: Drama;
-  onBack: () => void;
-  onStartWatching: (episodeId?: string) => void;
-  onRefreshCatalog: () => Promise<void>;
-  isRefreshingCatalog: boolean;
-}) {
-  const [episodes, setEpisodes] = useState<PlayerEpisode[]>([]);
-  const [isRefreshingEpisodes, setIsRefreshingEpisodes] = useState(false);
-
-  const loadEpisodes = useCallback(async () => {
-    if (!series.databaseId) {
-      return [];
-    }
-
-    const payload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${series.databaseId}/episodes`);
-
-    return payload.episodes.map(mapApiEpisode);
-  }, [series.databaseId]);
-
-  const refreshSeriesDetail = useCallback(async () => {
-    setIsRefreshingEpisodes(true);
-
-    try {
-      const [nextEpisodes] = await Promise.all([loadEpisodes(), onRefreshCatalog()]);
-      setEpisodes(nextEpisodes);
-    } catch {
-      setEpisodes([]);
-    } finally {
-      setIsRefreshingEpisodes(false);
-    }
-  }, [loadEpisodes, onRefreshCatalog]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadInitialEpisodes() {
-      try {
-        const nextEpisodes = await loadEpisodes();
-
-        if (!isMounted) {
-          return;
-        }
-
-        setEpisodes(nextEpisodes);
-      } catch {
-        if (isMounted) {
-          setEpisodes([]);
-        }
-      }
-    }
-
-    void loadInitialEpisodes();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [loadEpisodes]);
-
-  const episodeCount = episodes.length;
-  const episodeCountLabel = `${episodeCount} ${episodeCount === 1 ? 'episode' : 'episodes'}`;
-
-  return (
-    <View style={styles.detailScreen}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.detailContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshingCatalog || isRefreshingEpisodes}
-            onRefresh={refreshSeriesDetail}
-            tintColor={Colors.primary}
-          />
-        }
-      >
-        <View style={styles.detailHero}>
-          <PosterVisual drama={series} isHero />
-          <LinearGradient
-            colors={['rgba(0,0,0,0.2)', 'transparent', Colors.background]}
-            style={StyleSheet.absoluteFill}
-          />
-          <SafeAreaView style={styles.detailTopBar}>
-              <Pressable style={styles.playerRoundButton} onPress={onBack} accessibilityLabel="Back">
-              <Ionicons name="chevron-back" size={22} color={Colors.text} />
-            </Pressable>
-            <Pressable style={styles.playerRoundButton} accessibilityLabel="More options">
-              <Ionicons name="ellipsis-horizontal" size={22} color={Colors.text} />
-            </Pressable>
-          </SafeAreaView>
-        </View>
-
-        <View style={styles.detailInfo}>
-          <View style={styles.detailTagRow}>
-            {series.tags.slice(0, 3).map((tag) => (
-              <Text key={`${series.id}-${tag}`} style={styles.detailTag}>{tag.toUpperCase()}</Text>
-            ))}
-          </View>
-          <Text style={styles.detailTitle}>{series.title}</Text>
-          <Text style={styles.detailMeta}>4.8 rating  /  {episodeCountLabel}  /  {series.status}</Text>
-          <Text style={styles.detailSynopsis}>{series.mood}</Text>
-          <Pressable style={styles.detailWatchButton} onPress={() => onStartWatching()}>
-            <Text style={styles.primaryButtonText}>Start Watching</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.detailEpisodeHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Episodes</Text>
-            <Text style={styles.detailEpisodeSub}>
-              {episodeCount > 0 ? `${episodeCountLabel} uploaded.` : 'No uploaded episodes found.'}
-            </Text>
-          </View>
-          <Text style={styles.detailSort}>Newest</Text>
-        </View>
-
-        <View style={styles.detailEpisodeList}>
-          {episodes.length > 0 ? episodes.map((episode) => (
-            <EpisodeRow
-              key={episode.number}
-              episode={episode}
-              poster={series.posterCardImage ?? series.posterImage}
-              onPress={() => onStartWatching(episode.id)}
-            />
-          )) : (
-            <Text style={styles.detailSynopsis}>No live episodes are published for this series yet.</Text>
-          )}
-        </View>
-      </ScrollView>
-    </View>
-  );
-}
-
-function EpisodeRow({ episode, poster, onPress }: {
-  episode: PlayerEpisode;
-  poster?: ImageSourcePropType;
-  onPress: () => void;
-}) {
-  const isFree = Boolean(episode.isFree);
-  const [failedThumbnail, setFailedThumbnail] = useState<string>();
-  const thumbnailUrl = !episode.isLocked && episode.thumbnailUrl !== failedThumbnail ? episode.thumbnailUrl : null;
-  const artwork = thumbnailUrl ? { uri: thumbnailUrl } : poster;
-
-  return (
-    <Pressable style={styles.episodeRow} onPress={onPress}>
-      <LinearGradient colors={['#42275e', '#160b1d']} style={styles.episodeThumb}>
-        <Text style={styles.episodeThumbText}>{episode.number}</Text>
-        {artwork ? (
-          <Image
-            source={artwork}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            onError={() => { if (thumbnailUrl) setFailedThumbnail(thumbnailUrl); }}
-          />
-        ) : null}
-      </LinearGradient>
-      <View style={styles.episodeCopy}>
-        <Text style={styles.episodeTitle}>Episode {episode.number}: {episode.title}</Text>
-        <Text style={styles.episodeHook} numberOfLines={1}>{episode.hook}</Text>
-        {episode.progress > 0 ? (
-          <View style={styles.episodeProgressTrack}>
-            <View style={[styles.episodeProgressFill, { width: `${episode.progress}%` }]} />
-          </View>
-        ) : null}
-      </View>
-      {isFree ? (
-        <View style={[styles.episodeBadge, styles.episodeBadgeFree]}>
-          <Text style={[styles.episodeBadgeText, styles.episodeBadgeTextFree]}>FREE</Text>
-        </View>
-      ) : (
-        <View style={[styles.episodeBadge, styles.episodeBadgeLocked]}>
-          <Text style={[styles.episodeBadgeText, styles.episodeBadgeTextLocked]}>{episode.coinCost ?? 0}</Text>
-          <Ionicons name="cash" size={10} color={Colors.primary} />
-        </View>
-      )}
-    </Pressable>
-  );
-}
-
 function PlayerAction({
   label,
   icon,
@@ -5038,205 +4830,6 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 13,
     fontWeight: '800',
-  },
-  detailScreen: {
-    backgroundColor: Colors.background,
-    flex: 1,
-  },
-  detailContent: {
-    paddingBottom: SafeArea.bottom + Spacing[8],
-  },
-  detailHero: {
-    height: 344,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  detailArtwork: {
-    alignItems: 'center',
-    bottom: 0,
-    justifyContent: 'center',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
-  detailArtworkHalo: {
-    backgroundColor: 'rgba(245,200,66,0.08)',
-    borderRadius: Radius.full,
-    height: 300,
-    position: 'absolute',
-    width: 300,
-  },
-  detailArtworkPortrait: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderColor: 'rgba(255,255,255,0.15)',
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    height: 196,
-    justifyContent: 'center',
-    width: 196,
-  },
-  detailArtworkText: {
-    color: 'rgba(255,255,255,0.52)',
-    fontSize: 112,
-    fontWeight: '700',
-  },
-  detailTopBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing[5],
-    paddingTop: Spacing[2],
-  },
-  detailInfo: {
-    marginTop: -44,
-    paddingHorizontal: Spacing[5],
-  },
-  detailTagRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing[2],
-    marginBottom: Spacing[3],
-  },
-  detailTag: {
-    backgroundColor: Colors.backgroundCard,
-    borderColor: Colors.border,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    color: Colors.textMuted,
-    fontSize: 9,
-    fontWeight: '700',
-    paddingHorizontal: Spacing[3],
-    paddingVertical: Spacing[1],
-  },
-  detailTitle: {
-    color: Colors.text,
-    fontSize: 34,
-    fontWeight: '700',
-    letterSpacing: 0,
-  },
-  detailMeta: {
-    color: Colors.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    marginTop: Spacing[2],
-  },
-  detailSynopsis: {
-    color: Colors.textMuted,
-    fontSize: 14,
-    fontWeight: '600',
-    lineHeight: 21,
-    marginTop: Spacing[4],
-  },
-  detailWatchButton: {
-    alignItems: 'center',
-    backgroundColor: Colors.primary,
-    borderRadius: Radius.md,
-    justifyContent: 'center',
-    marginTop: Spacing[5],
-    minHeight: 52,
-  },
-  detailEpisodeHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: Spacing[7],
-    paddingHorizontal: Spacing[5],
-    paddingBottom: Spacing[3],
-  },
-  detailEpisodeSub: {
-    color: Colors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: Spacing[1],
-  },
-  detailSort: {
-    color: Colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  detailEpisodeList: {
-    borderTopColor: Colors.border,
-    borderTopWidth: 1,
-  },
-  episodeRow: {
-    alignItems: 'center',
-    borderBottomColor: Colors.border,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    gap: Spacing[3],
-    minHeight: 84,
-    paddingHorizontal: Spacing[5],
-    paddingVertical: Spacing[3],
-  },
-  episodeThumb: {
-    alignItems: 'center',
-    borderRadius: Radius.sm,
-    height: Size.episodeThumbHeight,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    width: Size.episodeThumbWidth,
-  },
-  episodeThumbText: {
-    color: 'rgba(255,255,255,0.62)',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  episodeCopy: {
-    flex: 1,
-  },
-  episodeTitle: {
-    color: Colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  episodeHook: {
-    color: Colors.textMuted,
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: Spacing[1],
-  },
-  episodeProgressTrack: {
-    backgroundColor: Colors.border,
-    borderRadius: Radius.full,
-    height: 3,
-    marginTop: Spacing[2],
-    overflow: 'hidden',
-  },
-  episodeProgressFill: {
-    backgroundColor: Colors.primary,
-    borderRadius: Radius.full,
-    height: '100%',
-  },
-  episodeBadge: {
-    alignItems: 'center',
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 3,
-    justifyContent: 'center',
-    minWidth: 40,
-    paddingHorizontal: Spacing[2],
-    paddingVertical: Spacing[1],
-  },
-  episodeBadgeFree: {
-    backgroundColor: Colors.successBg,
-    borderColor: Colors.success,
-  },
-  episodeBadgeLocked: {
-    backgroundColor: Colors.primaryBg,
-    borderColor: Colors.primaryBorder,
-  },
-  episodeBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  episodeBadgeTextFree: {
-    color: Colors.success,
-  },
-  episodeBadgeTextLocked: {
-    color: Colors.primary,
   },
   screen: {
     flex: 1,

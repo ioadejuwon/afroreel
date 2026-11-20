@@ -1,4 +1,4 @@
-import { createHmac, createPrivateKey, sign, timingSafeEqual, type KeyObject } from "node:crypto";
+import { createHash, createHmac, createPrivateKey, sign, timingSafeEqual, type KeyObject } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config";
 
@@ -21,6 +21,7 @@ const streamVideoSchema = z.object({
   requireSignedURLs: z.boolean().optional(),
   readyToStream: z.boolean().optional(),
   duration: z.number().min(-1).max(1_000_000).nullish(),
+  thumbnailTimestampPct: z.number().min(0).max(1).nullish(),
   status: z.object({ state: z.string(), errorReasonText: z.string().nullish() }).nullish(),
 });
 
@@ -146,7 +147,7 @@ export async function createImageDirectUpload(): Promise<{ id: string; uploadUrl
   return { id: result.id, uploadUrl: uploadLocation(result.uploadURL) };
 }
 
-export function imageDeliveryUrl(imageId: string, variant: PosterVariant): string | null {
+export function imageDeliveryUrl(imageId: string, variant: PosterVariant | "public"): string | null {
   const hash = config.cloudflare.imagesDeliveryHash;
   if (!hash || !imageIdSchema.safeParse(imageId).success) return null;
   return `https://imagedelivery.net/${encodeURIComponent(hash)}/${encodeURIComponent(imageId)}/${variant}`;
@@ -210,7 +211,7 @@ export function parseStreamVideo(value: unknown): StreamVideo | null {
     uid: video.uid,
     state: uploadState,
     durationSeconds: duration === null ? null : Math.round(duration),
-    thumbnailTimeMs: duration === null ? null : Math.floor(duration * 100),
+    thumbnailTimeMs: duration === null ? null : Math.round(duration * (video.thumbnailTimestampPct ?? 0.1) * 1000),
     error,
   };
 }
@@ -274,5 +275,34 @@ export function createPlaybackUrl(uid: string): string {
 
 export function createThumbnailUrl(uid: string, thumbnailTimeMs: number): string {
   const time = `${thumbnailTimeMs / 1000}s`;
-  return signedStreamUrl(uid, 15 * 60, `thumbnails/thumbnail.jpg?time=${time}&width=216&height=144&fit=crop`);
+  return signedStreamUrl(uid, 15 * 60, `thumbnails/thumbnail.jpg?time=${time}&width=480&height=600&fit=crop`);
+}
+
+export function episodePreviewId(uid: string, frameTimeMs: number): string {
+  return "episode-" + createHash("sha256").update(`${uid}:${frameTimeMs}`).digest("hex");
+}
+
+export async function importEpisodePreview(uid: string, frameTimeMs: number): Promise<string> {
+  const id = episodePreviewId(uid, frameTimeMs);
+  const url = imageDeliveryUrl(id, "public");
+  if (!url) throw new MediaError(503, "Configure Cloudflare Images delivery for episode previews.");
+  const body = new FormData();
+  body.set("id", id);
+  body.set("url", createThumbnailUrl(uid, frameTimeMs));
+  body.set("requireSignedURLs", "false");
+  let response: Response;
+  try {
+    response = await cloudflareRequest("Images", "/images/v1", "import the episode preview", { method: "POST", body });
+  } catch (error) {
+    if (!(error instanceof MediaError) || error.status !== 502) throw error;
+    // Concurrent ready events or a retry after an interrupted DB write can find the image already imported.
+    response = await cloudflareRequest("Images", `/images/v1/${id}`, "find the imported episode preview").catch(() => { throw error; });
+  }
+  const image = await cloudflareResult<{ id: string; variants?: string[]; requireSignedURLs: boolean }>(
+    response, "Cloudflare did not confirm the episode preview.",
+  );
+  if (image.id !== id || image.requireSignedURLs !== false || !image.variants?.includes(url)) {
+    throw new MediaError(502, "Cloudflare did not return the public episode preview.");
+  }
+  return url;
 }

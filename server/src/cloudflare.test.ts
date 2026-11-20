@@ -63,7 +63,7 @@ describe("Cloudflare Stream", () => {
     expect(playback.pathname).toMatch(/\/manifest\/video\.m3u8$/);
     expect(thumbnail.pathname).toMatch(/\/thumbnails\/thumbnail\.jpg$/);
     expect(Object.fromEntries(thumbnail.searchParams)).toEqual({
-      time: "1.325s", width: "216", height: "144", fit: "crop",
+      time: "1.325s", width: "480", height: "600", fit: "crop",
     });
     for (const [url, ttl] of [[playback, 3600], [thumbnail, 900]] as const) {
       const [header, claims, signature] = url.pathname.split("/")[1].split(".");

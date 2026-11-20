@@ -30,6 +30,7 @@ export type ApiEpisode = {
   title: string;
   hook: string | null;
   thumbnailUrl?: string | null;
+  durationSeconds: number | null;
   isLocked: boolean;
   isFree: boolean;
   coinCost: number;

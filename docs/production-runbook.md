@@ -38,6 +38,8 @@ Use separate Cloudflare resources for staging and production. Put these variable
 - Enable [hosted Cloudflare Images](https://developers.cloudflare.com/images/pricing/). Set `CLOUDFLARE_IMAGES_API_TOKEN` with Images Write permission and `CLOUDFLARE_IMAGES_DELIVERY_HASH` from Images → Developer Resources. Create `postercard` (360 × 540), `posterdetail` (720 × 1080), and `adminpreview` (240 × 360), with Cover fit and metadata removed. Series posters use public delivery. [Cloudflare variant setup](https://developers.cloudflare.com/images/optimization/hosted-images/create-variants/)
 - Register each account's Stream VOD webhook at its own HTTPS API endpoint, `/webhooks/cloudflare/stream`. Copy the returned secret into `CLOUDFLARE_STREAM_WEBHOOK_SECRET`. Test with a new upload and leave the production webhook pointed at the production API during staging tests. [Cloudflare webhook setup](https://developers.cloudflare.com/stream/manage-video-library/using-webhooks/)
 
+After deploying episode previews, run `npm run previews:backfill` against the catalog for that environment. It imports a 480 × 600 still from each existing ready Stream video into Cloudflare Images using the `public` variant. New videos and replacements use the same import when ready. Re-run the command after resolving an import error. Completed previews are skipped.
+
 ### Local media smoke test
 
 1. For a socket-based MAMP installation, set `DB_SOCKET_PATH=/Applications/MAMP/tmp/mysql/mysql.sock` in the server's local environment. Set `ALLOW_LOCAL_MEDIA=true` to keep using existing local files during the switch. Back up MySQL, then run `npm run db:migrate` before starting the API.

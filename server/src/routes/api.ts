@@ -31,7 +31,7 @@ import {
   unlockEpisode,
   type EpisodeRow,
 } from "../content";
-import { createPlaybackUrl, createThumbnailUrl, isStreamVideoUid, MediaError, STREAM_PLAYBACK_TTL_SECONDS } from "../cloudflare";
+import { createPlaybackUrl, createThumbnailUrl, episodePreviewId, imageDeliveryUrl, isStreamVideoUid, MediaError, STREAM_PLAYBACK_TTL_SECONDS } from "../cloudflare";
 import { coinProducts } from "../commerce";
 import { legacyMediaUrl, posterUrl } from "../media";
 
@@ -509,14 +509,18 @@ function absolutize(req: Request, value: string | null): string | null {
 }
 
 function episodeThumbnailUrl(req: Request, episode: EpisodeRow): string | null {
-  if ((!episode.is_free && !episode.is_unlocked) || !episode.cloudflare_ready) return null;
+  if (!episode.cloudflare_ready) return null;
   const uid = episode.cloudflare_video_uid;
   if (!isStreamVideoUid(uid)) {
     return allowLocalMedia ? absolutize(req, legacyMediaUrl(episode.thumbnail_url)) : null;
   }
 
+  const frameTime = episode.cloudflare_thumbnail_time_ms ?? (episode.duration_seconds ?? 0) * 100;
+  const preview = imageDeliveryUrl(episodePreviewId(uid, frameTime), "public");
+  if (preview && episode.thumbnail_url === preview) return preview;
+  if (!episode.is_free && !episode.is_unlocked) return null;
+
   try {
-    const frameTime = episode.cloudflare_thumbnail_time_ms ?? (episode.duration_seconds ?? 0) * 100;
     return createThumbnailUrl(uid, frameTime);
   } catch (error) {
     if (!isProduction && error instanceof MediaError && error.status === 503) return null;

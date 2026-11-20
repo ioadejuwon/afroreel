@@ -1,3 +1,5 @@
+import type { ImageSourcePropType } from 'react-native';
+
 /**
  * AfroReel — Series Types
  */
@@ -50,3 +52,25 @@ export interface HomeSection {
   title: string;
   data: Series[] | SeriesWithProgress[];
 }
+
+export type Drama = {
+  id: string;
+  seriesId: string;
+  databaseId: number;
+  title: string;
+  genre: string;
+  tags: string[];
+  episodeCount: number;
+  posterGradient: readonly [string, string];
+  posterImage?: ImageSourcePropType;
+  posterCardImage?: ImageSourcePropType;
+  mood: string;
+  progress?: number;
+  progressSeconds?: number;
+  isFree?: boolean;
+  isLocked?: boolean;
+  freeEpisodeCount?: number;
+  latestEpisodeAt?: string | null;
+  rank?: number;
+  status?: 'Ongoing' | 'Completed';
+};
