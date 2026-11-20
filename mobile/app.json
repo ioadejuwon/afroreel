@@ -47,6 +47,9 @@
       [
         "expo-build-properties",
         {
+          "ios": {
+            "usePrecompiledModules": false
+          },
           "android": {
             "extraProguardRules": "# Room creates the WorkManager database by reflection during Android startup.\n-keep class androidx.work.impl.WorkDatabase_Impl { public <init>(); }"
           }

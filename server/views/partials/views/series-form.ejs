@@ -1,0 +1,40 @@
+<section class="view<%= initialView === (editing ? 'series-edit' : 'series-new') ? ' active' : '' %>" id="<%= editing ? 'series-edit' : 'series-new' %>" aria-label="<%= editing ? 'Edit series' : 'Create series' %>">
+  <div class="section-head split-head">
+    <div>
+      <h2><%= editing ? 'Edit details' : 'Create Series' %></h2>
+      <% if (!editing) { %><span class="section-note">Add a title, metadata, and poster for the app catalog.</span><% } %>
+    </div>
+    <a class="ghost-button" href="<%= adminPath %>/series">Back to Series</a>
+  </div>
+
+  <% if (editing && !item) { %><p class="empty-card">Series not found.</p><% } else { %>
+    <form class="panel content-form series-create-form" method="post" action="<%= adminPath %>/series<%= editing ? '/' + item.id + '/edit' : '' %>" data-poster-form>
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <%- include("poster-upload-field", { label: "Series poster", required: false, currentCover: editing ? posterUrl(item, "adminpreview") : null }) %>
+      <div class="series-fields">
+        <label>
+          <span>Series name</span>
+          <input name="title" required maxlength="190" value="<%= item?.title || '' %>" placeholder="Lagos Secrets" />
+        </label>
+        <label>
+          <span>Genres / tags</span>
+          <input name="genres" maxlength="255" value="<%= item?.genres || '' %>" placeholder="Romance, Betrayal, Lagos" />
+        </label>
+        <label>
+          <span>Synopsis</span>
+          <textarea name="synopsis" rows="4" placeholder="A short story description for the app."><%= item?.synopsis || '' %></textarea>
+        </label>
+        <div class="series-form-footer">
+          <% if (!editing) { %>
+            <label>
+              <span>Status</span>
+              <select name="status"><option value="draft">Draft</option><option value="live">Live</option></select>
+            </label>
+          <% } %>
+          <span class="form-status" role="status" data-poster-status></span>
+          <button class="primary-button" type="submit"><%= editing ? 'Save changes' : 'Create Series' %></button>
+        </div>
+      </div>
+    </form>
+  <% } %>
+</section>

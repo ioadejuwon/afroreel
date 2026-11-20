@@ -1,4 +1,4 @@
-<section class="view active" id="dashboard" aria-label="Dashboard">
+<section class="view<%= initialView === 'dashboard' ? ' active' : '' %>" id="dashboard" aria-label="Dashboard">
   <div class="dashboard-hero">
     <div>
       <h2>Hello, <span><%= String(admin.name || "Admin").split(" ")[0] %></span></h2>

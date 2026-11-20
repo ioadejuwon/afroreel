@@ -1,5 +1,6 @@
 <label class="poster-dropzone" data-poster-dropzone>
   <input type="file" accept="image/png,image/jpeg,image/webp" data-poster-file <%= required ? "required" : "" %> />
+  <% if (typeof currentCover !== "undefined" && currentCover) { %><img class="current-cover" src="<%= currentCover %>" alt="Current series poster" /><% } %>
   <span class="poster-preview" data-poster-preview aria-hidden="true"></span>
   <span class="poster-dropzone-kicker"><%= label %></span>
   <strong data-poster-file-name>Drop image here or choose file</strong>

@@ -853,12 +853,15 @@ export async function listSeries(includeDrafts = true, userId?: string): Promise
   return rows;
 }
 
-export async function createSeries(input: {
+type SeriesDetails = {
   title: string;
   synopsis: string;
   genres: string;
-  posterUrl: string | null;
   posterImageId: string | null;
+};
+
+export async function createSeries(input: SeriesDetails & {
+  posterUrl: string | null;
   status: SeriesStatus;
 }): Promise<CreatedSeries> {
   const slug = await uniqueSlug(input.title);
@@ -873,6 +876,34 @@ export async function createSeries(input: {
     id: result.insertId,
     seriesId,
   };
+}
+
+export async function editSeries(seriesId: number, details: SeriesDetails): Promise<void> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    `UPDATE series SET title = ?, synopsis = ?, genres = ?, poster_image_id = COALESCE(?, poster_image_id)
+      WHERE id = ?`,
+    [details.title, details.synopsis || null, details.genres || null, details.posterImageId, seriesId],
+  );
+  if (!result.affectedRows) throw new MediaError(404, "Series not found.");
+}
+
+export async function duplicateSeries(sourceId: number): Promise<void> {
+  const publicId = await uniqueSeriesId();
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status)
+     SELECT ?, LEFT(CONCAT('Copy of ', title), 190), CONCAT('copy-', ?), synopsis, genres, poster_url, poster_image_id, 'draft'
+       FROM series WHERE id = ?`,
+    [publicId, publicId, sourceId],
+  );
+  if (!result.affectedRows) throw new MediaError(404, "Series not found.");
+}
+
+export async function deleteSeries(seriesId: number, expectedEpisodes: number): Promise<void> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    "DELETE FROM series WHERE id = ? AND (SELECT COUNT(*) FROM episodes WHERE series_id = ?) = ?",
+    [seriesId, seriesId, expectedEpisodes],
+  );
+  if (!result.affectedRows) throw new MediaError(409, "The series changed. Refresh the library and review it before deleting.");
 }
 
 export async function setSeriesPoster(seriesId: number, imageId: string): Promise<boolean> {
@@ -1032,7 +1063,8 @@ export async function attachLocalVideo(episodeId: number, videoUrl: string): Pro
 }
 
 export async function setSeriesStatus(seriesId: number, status: SeriesStatus): Promise<void> {
-  await pool.execute("UPDATE series SET status = ? WHERE id = ?", [status, seriesId]);
+  const [result] = await pool.execute<ResultSetHeader>("UPDATE series SET status = ? WHERE id = ?", [status, seriesId]);
+  if (!result.affectedRows) throw new MediaError(404, "Series not found.");
 }
 
 export async function setEpisodeStatus(episodeId: number, status: EpisodeStatus): Promise<void> {

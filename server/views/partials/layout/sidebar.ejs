@@ -1,25 +1,20 @@
 <aside class="sidebar" id="admin-sidebar" aria-label="Admin navigation">
   <div class="brand">
-    <span class="brand-mark" aria-hidden="true">AR</span>
-    <div>
-      <strong>AfroReel</strong>
-      <span>Admin Studio</span>
-    </div>
+    <img class="brand-mark" src="<%= adminPath %>/icons/icon-192.png" alt="" width="40" height="40" />
+    <div><strong>AfroReel</strong><span>Admin Studio</span></div>
   </div>
 
-  <p class="nav-label">Menu</p>
-  <nav class="nav-list">
-    <button class="nav-item active" type="button" data-view="dashboard"><span>▦</span>Dashboard</button>
-    <button class="nav-item" type="button" data-view="series"><span>▣</span>Series</button>
-    <button class="nav-item" type="button" data-view="users"><span>◌</span>Users</button>
-    <button class="nav-item" type="button" data-view="monetization"><span>$</span>Monetization</button>
-    <button class="nav-item" type="button" data-view="analytics"><span>↗</span>Analytics</button>
-    <button class="nav-item" type="button" data-view="settings"><span>⚙</span>Settings</button>
+  <nav class="nav-list" aria-label="Admin pages">
+    <% for (const name of ["Dashboard", "Series", "Users", "Monetization", "Analytics", "Settings"]) { %>
+      <% const view = name.toLowerCase(); const active = view === initialView || (view === "series" && initialView.startsWith("series-")); %>
+      <a class="nav-item<%= active ? ' active' : '' %>" href="<%= adminPath %>/<%= view %>" data-view="<%= view %>" <%- active ? 'aria-current="page"' : '' %>>
+        <svg class="icon" aria-hidden="true"><use href="#i-<%= view %>"/></svg><%= name %>
+      </a>
+    <% } %>
   </nav>
 
   <div class="sidebar-card">
-    <span>Signed in as</span>
-    <strong><%= admin.name %></strong>
-    <em><%= admin.email %></em>
+    <span class="account-avatar" aria-hidden="true"><%= String(admin.name || "A").slice(0, 1).toUpperCase() %></span>
+    <div><strong><%= admin.name %></strong><span><%= admin.email %></span></div>
   </div>
 </aside>

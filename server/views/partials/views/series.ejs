@@ -1,36 +1,84 @@
-<section class="view" id="series" aria-label="Series management">
-  <div class="section-head">
-    <h2>Series Library</h2>
-    <span class="section-note">Create the show first, then manage its episodes from the series detail page.</span>
+<%
+  const draftCount = series.filter(item => item.status === "draft").length;
+  const counts = { all: series.length, draft: draftCount, live: series.length - draftCount };
+  const episodeTitles = new Map();
+  for (const episode of episodes) {
+    if (!episodeTitles.has(episode.series_id)) episodeTitles.set(episode.series_id, []);
+    episodeTitles.get(episode.series_id).push(episode.title);
+  }
+%>
+<section class="view<%= initialView === 'series' ? ' active' : '' %>" id="series" aria-labelledby="library-title">
+  <div class="library-heading">
+    <div>
+      <h1 id="library-title">Series library</h1>
+      <p>Create a show first, then add and manage its episodes from the series page.</p>
+    </div>
+    <a class="primary-button" href="<%= adminPath %>/series/new"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Create series</a>
   </div>
 
-  <div class="series-actions">
-    <a class="primary-button" href="<%= basePath %>/admin/series/new">Create Series</a>
+  <dl class="library-metrics" aria-label="Catalog totals">
+    <div><dt>Total series</dt><dd><%= counts.all %></dd></div>
+    <div><dt>Total episodes</dt><dd><%= episodes.length %></dd></div>
+    <div><dt>Drafts</dt><dd data-count="draft"><%= counts.draft %></dd></div>
+    <div><dt>Published</dt><dd data-count="live"><%= counts.live %></dd></div>
+  </dl>
+
+  <div class="library-filters" role="group" aria-label="Filter series by status">
+    <% for (const [value, label] of [["all", "All"], ["draft", "Drafts"], ["live", "Published"]]) { %>
+      <button type="button" data-filter="<%= value %>" aria-pressed="<%= value === 'all' %>"><%= label %> · <span data-count="<%= value %>"><%= counts[value] %></span></button>
+    <% } %>
   </div>
 
   <div class="poster-grid">
-    <% if (series.length === 0) { %>
-      <article class="empty-card">No series yet.</article>
-    <% } %>
-    <% series.forEach((item) => { %>
-      <% const previewUrl = posterUrl(item, "adminpreview"); %>
-      <article class="series-card">
-        <% if (previewUrl) { %>
-          <img class="poster" src="<%= previewUrl %>" alt="" loading="lazy" />
-        <% } else { %>
-          <div class="poster"></div>
-        <% } %>
-        <strong><%= item.title %></strong>
-        <span><%= item.episode_count %> episodes · <span data-status-label><%= item.status %></span></span>
-        <div class="series-card-actions">
-          <a class="ghost-button" href="<%= basePath %>/admin/series/<%= item.series_id %>">Manage Episodes</a>
-          <form class="inline-form" method="post" action="<%= basePath %>/admin/series/<%= item.id %>/status" data-status-form data-entity-type="series">
+    <% for (const item of series) { %>
+      <% const cover = posterUrl(item, "adminpreview"); const published = item.status === "live"; const statusText = published ? "Published" : "Draft"; %>
+      <% const detailUrl = adminPath + "/series/" + item.series_id; const actionUrl = adminPath + "/series/" + item.id; %>
+      <article class="series-card" data-series-status="<%= item.status %>" data-search-text="<%= [item.title, ...(episodeTitles.get(item.id) || [])].join(' ').toLowerCase() %>">
+        <div class="series-cover">
+          <span>No cover yet</span>
+          <% if (cover) { %><img src="<%= cover %>" alt="" loading="lazy" /><% } %>
+          <span class="cover-badge" data-status-label><%= statusText %></span>
+        </div>
+        <div class="series-card-body">
+          <div class="card-heading">
+            <div>
+              <h2><%= item.title %></h2>
+              <p><%= item.episode_count %> episode<%= Number(item.episode_count) === 1 ? '' : 's' %> · <span data-status-label><%= statusText %></span></p>
+            </div>
+            <details class="card-menu" name="series-actions">
+              <summary aria-label="Actions for <%= item.title %>"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></summary>
+              <div class="card-menu-items">
+                <a href="<%= detailUrl %>"><svg class="icon" aria-hidden="true"><use href="#i-episodes"/></svg>Manage episodes</a>
+                <a href="<%= detailUrl %>/edit"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg>Edit details</a>
+                <a href="<%= detailUrl %>/preview"><svg class="icon" aria-hidden="true"><use href="#i-preview"/></svg>Preview</a>
+                <form method="post" action="<%= actionUrl %>/duplicate">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <button type="submit"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Duplicate</button>
+                </form>
+                <button type="button" class="delete-series" data-delete-series="<%= actionUrl %>/delete" data-episodes="<%= item.episode_count %>"><svg class="icon" aria-hidden="true"><use href="#i-delete"/></svg>Delete series</button>
+              </div>
+            </details>
+          </div>
+          <form method="post" action="<%= actionUrl %>/status" data-status-form data-entity-type="series">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-            <input type="hidden" name="status" value="<%= item.status === 'live' ? 'draft' : 'live' %>" />
-            <button class="ghost-button" type="submit" data-status-button><%= item.status === 'live' ? 'Move to Draft' : 'Publish' %></button>
+            <input type="hidden" name="status" value="<%= published ? 'draft' : 'live' %>" />
+            <button class="primary-button card-publish" type="submit" data-status-button>
+              <svg class="icon" aria-hidden="true"><use href="#i-<%= published ? 'draft' : 'publish' %>"/></svg><span><%= published ? 'Move to draft' : 'Publish' %></span>
+            </button>
           </form>
         </div>
       </article>
-    <% }) %>
+    <% } %>
   </div>
+  <p class="empty-card" data-library-empty <%= series.length ? 'hidden' : '' %>>No series yet.</p>
+  <p class="sr-only" role="status" data-library-feedback></p>
+  <dialog class="delete-dialog" aria-labelledby="delete-heading" aria-describedby="delete-impact">
+    <form method="post">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <input type="hidden" name="expectedEpisodes" />
+      <h2 id="delete-heading">Delete series?</h2>
+      <p id="delete-impact"></p>
+      <div class="dialog-actions"><button class="ghost-button" type="button" data-cancel-delete autofocus>Cancel</button><button class="danger-button" type="submit">Delete series</button></div>
+    </form>
+  </dialog>
 </section>

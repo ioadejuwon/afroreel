@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="<%= basePath %>/admin/styles.css" />
   </head>
   <body>
+    <%- include("partials/layout/icons") %>
     <div class="sidebar-overlay" data-sidebar-overlay></div>
     <div class="shell">
       <%- include("partials/layout/sidebar", { admin }) %>
@@ -16,9 +17,12 @@
       <main class="workspace">
         <%- include("partials/layout/topbar", { admin, csrfToken }) %>
 
+        <h1 id="view-title" <%= initialView.startsWith("series") ? "hidden" : "" %>><%= initialView.charAt(0).toUpperCase() + initialView.slice(1) %></h1>
         <%- include("partials/views/dashboard") %>
         <%- include("partials/views/series") %>
-        <%- include("partials/views/series-new") %>
+        <%- include("partials/views/series-form", { editing: false, item: null }) %>
+        <% if (initialView === "series-edit") { %><%- include("partials/views/series-form", { editing: true, item: selectedSeries }) %><% } %>
+        <% if (initialView === "series-preview") { %><%- include("partials/views/series-preview") %><% } %>
         <%- include("partials/views/series-detail") %>
         <%- include("partials/views/episodes") %>
         <%- include("partials/views/users") %>

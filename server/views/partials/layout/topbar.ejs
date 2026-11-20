@@ -1,38 +1,17 @@
-<header class="mobile-admin-bar" aria-label="Mobile admin bar">
-  <button class="mobile-menu-button" type="button" data-sidebar-toggle aria-controls="admin-sidebar" aria-expanded="false">
-    <span></span>
-    <span></span>
-    <span></span>
-  </button>
-  <div class="mobile-admin-identity">
-    <span class="mobile-avatar"><%= String(admin.name || "A").slice(0, 1).toUpperCase() %></span>
-    <div>
-      <strong><%= admin.name %></strong>
-      <em>Admin Studio</em>
-    </div>
-  </div>
-  <button class="mobile-upload-button" type="button" data-view-target="series">New</button>
-</header>
-
 <header class="topbar">
-  <h1 id="view-title">Dashboard</h1>
+  <button class="mobile-menu-button icon-button" type="button" data-sidebar-toggle aria-label="Open navigation" aria-controls="admin-sidebar" aria-expanded="false">
+    <svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg>
+  </button>
+  <form class="search" role="search" action="<%= adminPath %>/series" method="get">
+    <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+    <input name="q" type="search" aria-label="Search series and episodes" placeholder="Search series and episodes" autocomplete="off" />
+  </form>
   <div class="top-actions">
-    <label class="search">
-      <span>Search</span>
-      <input type="search" placeholder="Search content" />
-    </label>
-    <button class="icon-button" type="button" aria-label="Messages">✉</button>
-    <button class="icon-button" type="button" aria-label="Notifications">⌾</button>
-    <div class="admin-profile">
-      <span class="mobile-avatar"><%= String(admin.name || "A").slice(0, 1).toUpperCase() %></span>
-      <div>
-        <strong><%= admin.name %></strong>
-        <em><%= admin.email %></em>
-      </div>
-    </div>
-    <form class="logout-form" method="post" action="<%= basePath %>/admin/logout">
+    <button class="icon-button" type="button" aria-label="Messages" title="Messages" disabled><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg></button>
+    <button class="icon-button" type="button" aria-label="Notifications" title="Notifications" disabled><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg></button>
+    <form class="logout-form" method="post" action="<%= adminPath %>/logout">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-      <button class="ghost-button" type="submit">Logout</button>
+      <button class="ghost-button" type="submit">Log out</button>
     </form>
   </div>
 </header>

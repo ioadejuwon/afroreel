@@ -13,6 +13,8 @@ const titles = {
   series: "Series",
   "series-new": "Create Series",
   "series-detail": "Series",
+  "series-edit": "Edit details",
+  "series-preview": "Catalog preview",
   episodes: "Episodes",
   users: "Users",
   monetization: "Monetization",
@@ -45,6 +47,7 @@ function viewFromPath() {
   }
 
   if (parts[0] === "series" && parts[1]) {
+    if (parts[2] === "edit" || parts[2] === "preview") return `series-${parts[2]}`;
     return "series-detail";
   }
 
@@ -56,10 +59,12 @@ function setView(nextView, options = {}) {
     nextView = "dashboard";
   }
 
-  const navView = nextView === "series-detail" || nextView === "series-new" ? "series" : nextView;
+  const navView = nextView.startsWith("series-") ? "series" : nextView;
 
   navItems.forEach((item) => {
     item.classList.toggle("active", item.dataset.view === navView);
+    if (item.dataset.view === navView) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
   });
 
   views.forEach((view) => {
@@ -68,6 +73,7 @@ function setView(nextView, options = {}) {
 
   if (viewTitle) {
     viewTitle.textContent = titles[nextView] || "Dashboard";
+    viewTitle.hidden = navView === "series";
   }
 
   if (options.updateUrl !== false) {
@@ -79,6 +85,7 @@ function setView(nextView, options = {}) {
   if (options.focusTarget) {
     focusTarget(options.focusTarget);
   }
+  if (nextView === "series") refreshLibrary();
 }
 
 function setSidebarOpen(isOpen) {
@@ -91,10 +98,13 @@ function setSidebarOpen(isOpen) {
 }
 
 navItems.forEach((item) => {
-  item.addEventListener("click", () => {
+  item.addEventListener("click", (event) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
     setView(item.dataset.view);
     if (window.matchMedia("(max-width: 1080px)").matches) {
       setSidebarOpen(false);
+      sidebarToggles[0]?.focus();
     }
   });
 });
@@ -126,8 +136,9 @@ sidebarOverlay?.addEventListener("click", () => {
 });
 
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
+  if (event.key === "Escape" && sidebar?.classList.contains("open")) {
     setSidebarOpen(false);
+    sidebarToggles[0]?.focus();
   }
 });
 
@@ -138,6 +149,91 @@ window.addEventListener("resize", () => {
 });
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+
+const library = document.querySelector("#series");
+const libraryCards = Array.from(document.querySelectorAll("[data-series-status]"));
+const searchInput = document.querySelector(".search input");
+let libraryFilter = "all";
+if (searchInput) searchInput.value = new URLSearchParams(window.location.search).get("q") || "";
+
+function refreshLibrary() {
+  if (!library) return;
+  const counts = { all: libraryCards.length, draft: 0, live: 0 };
+  const query = searchInput.value.trim().toLowerCase();
+  let visible = 0;
+  for (const card of libraryCards) {
+    const status = card.dataset.seriesStatus;
+    counts[status]++;
+    card.hidden = (libraryFilter !== "all" && libraryFilter !== status) || !card.dataset.searchText.includes(query);
+    if (!card.hidden) visible++;
+  }
+  library.querySelectorAll("[data-count]").forEach(label => { label.textContent = counts[label.dataset.count]; });
+  library.querySelectorAll("[data-filter]").forEach(button => {
+    button.setAttribute("aria-pressed", String(button.dataset.filter === libraryFilter));
+  });
+  const empty = library.querySelector("[data-library-empty]");
+  empty.hidden = visible > 0;
+  empty.textContent = counts.all ? "No series match this filter or search." : "No series yet.";
+}
+
+library?.querySelectorAll("[data-filter]").forEach(button => {
+  button.addEventListener("click", () => {
+    libraryFilter = button.dataset.filter;
+    refreshLibrary();
+  });
+});
+searchInput?.addEventListener("input", () => {
+  if (library?.classList.contains("active")) refreshLibrary();
+});
+
+document.querySelectorAll(".series-cover img").forEach(img => {
+  const showFallback = () => { img.hidden = true; };
+  img.addEventListener("error", showFallback, { once: true });
+  if (img.complete && !img.naturalWidth) showFallback();
+});
+
+const cardMenus = Array.from(document.querySelectorAll(".card-menu"));
+cardMenus.forEach(menu => {
+  menu.addEventListener("toggle", () => {
+    if (!menu.open) return;
+    const panelHeight = menu.querySelector(".card-menu-items").offsetHeight;
+    const rect = menu.getBoundingClientRect();
+    menu.classList.toggle("opens-up", window.innerHeight - rect.bottom < panelHeight && rect.top >= panelHeight);
+  });
+  menu.addEventListener("keydown", event => {
+    if (event.key === "Escape" && menu.open) {
+      menu.open = false;
+      menu.querySelector("summary").focus();
+    }
+  });
+  menu.addEventListener("focusout", event => {
+    if (event.relatedTarget && !menu.contains(event.relatedTarget)) menu.open = false;
+  });
+});
+window.addEventListener("click", event => {
+  for (const menu of cardMenus) {
+    if (menu.open && !menu.contains(event.target)) menu.open = false;
+  }
+});
+
+const deleteDialog = library?.querySelector(".delete-dialog");
+let deleteTrigger;
+library?.querySelectorAll("[data-delete-series]").forEach(button => {
+  button.addEventListener("click", () => {
+    const count = Number(button.dataset.episodes);
+    const title = button.closest("article").querySelector("h2").textContent;
+    const menu = button.closest("details");
+    deleteTrigger = menu.querySelector("summary");
+    menu.open = false;
+    deleteDialog.querySelector("form").action = button.dataset.deleteSeries;
+    deleteDialog.querySelector('[name="expectedEpisodes"]').value = count;
+    deleteDialog.querySelector("#delete-impact").textContent =
+      `Permanently delete “${title}” and its ${count} episode${count === 1 ? "" : "s"}? This also removes linked unlocks, watch progress, reactions, and comments.`;
+    deleteDialog.showModal();
+  });
+});
+deleteDialog?.querySelector("[data-cancel-delete]").addEventListener("click", () => deleteDialog.close());
+deleteDialog?.addEventListener("close", () => deleteTrigger?.focus());
 
 document.querySelectorAll("[data-poster-form]").forEach((form) => {
   const fileInput = form.querySelector("[data-poster-file]");
@@ -371,7 +467,6 @@ document.querySelectorAll("[data-status-form]").forEach((form) => {
 
     const button = form.querySelector("[data-status-button]");
     const statusInput = form.querySelector('input[name="status"]');
-    const statusLabel = form.closest("article")?.querySelector("[data-status-label]");
     const entityType = form.dataset.entityType;
     const nextStatus = statusInput?.value || "";
 
@@ -397,7 +492,17 @@ document.querySelectorAll("[data-status-form]").forEach((form) => {
         throw new Error(payload.error || response.statusText);
       }
 
-      updateStatusForm(form, payload.status || nextStatus, entityType);
+      const status = payload.status || nextStatus;
+      if (entityType === "series") {
+        document.querySelectorAll('[data-entity-type="series"]').forEach(other => {
+          if (other.action === form.action) updateStatusForm(other, status, entityType);
+        });
+        refreshLibrary();
+        if (form.closest("[hidden]")) library?.querySelector('[aria-pressed="true"]')?.focus();
+        setStatus(library?.querySelector("[data-library-feedback]"), status === "live" ? "Series published." : "Series moved to draft.");
+      } else {
+        updateStatusForm(form, status, entityType);
+      }
     } catch (error) {
       alert(error instanceof Error ? error.message : "Status update failed.");
     } finally {
@@ -432,7 +537,7 @@ document.querySelectorAll("[data-delete-episode-form]").forEach((form) => {
         throw new Error(payload.error || response.statusText);
       }
 
-      form.closest(".series-episode-row")?.remove();
+      window.location.reload();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Episode removal failed.");
     } finally {
@@ -444,21 +549,24 @@ document.querySelectorAll("[data-delete-episode-form]").forEach((form) => {
 function updateStatusForm(form, status, entityType) {
   const statusInput = form.querySelector('input[name="status"]');
   const statusButton = form.querySelector("[data-status-button]");
-  const statusLabel = form.closest("article")?.querySelector("[data-status-label]");
+  const article = form.closest("article");
   const nextStatus = status === "live" ? "draft" : "live";
 
   if (statusInput) {
     statusInput.value = nextStatus;
   }
 
-  if (statusLabel) {
-    statusLabel.textContent = status;
+  if (article?.hasAttribute("data-series-status")) article.dataset.seriesStatus = status;
+  article?.querySelectorAll("[data-status-label]").forEach(statusLabel => {
+    statusLabel.textContent = entityType === "series" ? (status === "live" ? "Published" : "Draft") : status;
     statusLabel.classList.remove("live", "draft", "review", "blocked");
     statusLabel.classList.add(status === "processing" ? "review" : status);
-  }
+  });
 
   if (statusButton) {
-    statusButton.textContent = status === "live" ? (entityType === "series" ? "Move to Draft" : "Draft") : "Publish";
+    const label = statusButton.querySelector("span") || statusButton;
+    label.textContent = status === "live" ? (entityType === "series" ? "Move to draft" : "Draft") : "Publish";
+    statusButton.querySelector("use")?.setAttribute("href", status === "live" ? "#i-draft" : "#i-publish");
   }
 }
 

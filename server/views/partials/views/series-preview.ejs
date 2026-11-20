@@ -1,0 +1,22 @@
+<section class="view active" id="series-preview" aria-label="Catalog preview">
+  <div class="section-head split-head"><h1>Catalog preview</h1><a class="ghost-button" href="<%= adminPath %>/series">Back to Series</a></div>
+  <% if (selectedSeries) { %>
+    <% const cover = posterUrl(selectedSeries, "posterdetail"); %>
+    <article class="panel preview-series">
+      <div class="series-cover"><span>No cover yet</span><% if (cover) { %><img src="<%= cover %>" alt="" /><% } %></div>
+      <div class="preview-details">
+        <p class="eyebrow"><%= selectedSeries.status === "live" ? "Published" : "Draft" %></p>
+        <h2><%= selectedSeries.title %></h2>
+        <% if (selectedSeries.genres) { %><p class="preview-genres"><%= selectedSeries.genres %></p><% } %>
+        <% if (selectedSeries.synopsis) { %><p><%= selectedSeries.synopsis %></p><% } %>
+      </div>
+    </article>
+    <article class="panel preview-episodes">
+      <h2>Episodes</h2>
+      <% if (!selectedEpisodes.length) { %><p>No episodes yet.</p><% } %>
+      <ol><% for (const episode of selectedEpisodes) { %>
+        <li value="<%= episode.episode_number %>"><strong><%= episode.title %></strong><span><%= episode.status === "live" ? "Published" : episode.status === "processing" ? "Processing" : "Draft" %></span></li>
+      <% } %></ol>
+    </article>
+  <% } else { %><p class="empty-card">Series not found.</p><% } %>
+</section>

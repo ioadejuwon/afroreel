@@ -7,6 +7,9 @@ import {
   createEpisode,
   createSeries,
   deleteEpisode,
+  deleteSeries,
+  duplicateSeries,
+  editSeries,
   getDashboardData,
   getEpisodeMedia,
   getUsersData,
@@ -55,13 +58,13 @@ async function renderAdmin(req: Request, res: Response, options: {
   seriesDetailId?: string;
 } = {}): Promise<void> {
   const [series, episodes, dashboard, users] = await Promise.all([listSeries(true), listEpisodes(true), getDashboardData(), getUsersData()]);
-  const initialView = adminViews.has(options.initialView ?? "") ? options.initialView : "dashboard";
+  const initialView = options.initialView ?? "dashboard";
   const selectedSeries = options.seriesDetailId
-    ? series.find((item) => item.series_id === options.seriesDetailId || item.id === Number.parseInt(options.seriesDetailId ?? "", 10)) ?? null
+    ? series.find((item) => item.series_id === options.seriesDetailId || String(item.id) === options.seriesDetailId) ?? null
     : null;
   const selectedEpisodes = selectedSeries ? episodes.filter((episode) => episode.series_id === selectedSeries.id) : [];
 
-  res.set("Cache-Control", "private, no-store").status(options.status ?? 200).render("admin", {
+  res.set("Cache-Control", "private, no-store").status(options.status ?? (options.seriesDetailId && !selectedSeries ? 404 : 200)).render("admin", {
     admin: req.admin,
     csrfToken: req.csrfToken(),
     series,
@@ -153,6 +156,12 @@ adminRouter.get("/series/:seriesId", requireAdmin, async (req, res, next) => {
   }
 });
 
+for (const page of ["edit", "preview"]) {
+  adminRouter.get(`/series/:seriesId/${page}`, requireAdmin, async (req, res) => {
+    await renderAdmin(req, res, { initialView: `series-${page}`, seriesDetailId: String(req.params.seriesId) });
+  });
+}
+
 adminRouter.get("/:view", requireAdmin, async (req, res, next) => {
   try {
     const view = String(req.params.view || "");
@@ -167,25 +176,26 @@ adminRouter.get("/:view", requireAdmin, async (req, res, next) => {
   }
 });
 
+async function seriesDetails(req: Request) {
+  const title = stringBody(req.body.title);
+  const genres = stringBody(req.body.genres);
+  if (!title || [...title].length > 190) throw new MediaError(400, "Enter a series title of 1 to 190 characters.");
+  if ([...genres].length > 255) throw new MediaError(400, "Genres must be 255 characters or fewer.");
+  const posterImageId = stringBody(req.body.posterImageId) || null;
+  if (posterImageId) await verifyPosterImage(posterImageId);
+  return { title, genres, synopsis: stringBody(req.body.synopsis), posterImageId };
+}
+
 adminRouter.post("/series", requireAdmin, async (req, res, next) => {
   try {
-    const title = stringBody(req.body.title);
-    if (!title) {
-      throw new MediaError(400, "Series title is required.");
-    }
-
-    const posterImageId = stringBody(req.body.posterImageId) || null;
-    if (posterImageId) await verifyPosterImage(posterImageId);
+    const details = await seriesDetails(req);
     const posterData = stringBody(req.body.posterDataUrl);
-    if (!posterImageId && posterData && !allowLocalMedia) {
+    if (!details.posterImageId && posterData && !allowLocalMedia) {
       throw new MediaError(400, "Upload the poster to Cloudflare Images.");
     }
     const series = await createSeries({
-      title,
-      synopsis: stringBody(req.body.synopsis),
-      genres: stringBody(req.body.genres),
-      posterUrl: !posterImageId && posterData ? await savePosterDataUrl(posterData) : null,
-      posterImageId,
+      ...details,
+      posterUrl: !details.posterImageId && posterData ? await savePosterDataUrl(posterData) : null,
       status: enumBody<SeriesStatus>(req.body.status, ["draft", "live"], "draft"),
     });
 
@@ -198,6 +208,25 @@ adminRouter.post("/series", requireAdmin, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+adminRouter.post("/series/:seriesId/edit", requireAdmin, async (req, res) => {
+  await editSeries(Number(req.params.seriesId), await seriesDetails(req));
+  const redirectTo = adminViewPath(req, "series");
+  if (wantsJson(req)) res.json({ redirectTo });
+  else res.redirect(303, redirectTo);
+});
+
+adminRouter.post("/series/:seriesId/duplicate", requireAdmin, async (req, res) => {
+  await duplicateSeries(Number(req.params.seriesId));
+  res.redirect(303, adminViewPath(req, "series"));
+});
+
+adminRouter.post("/series/:seriesId/delete", requireAdmin, async (req, res) => {
+  const count = stringBody(req.body.expectedEpisodes);
+  if (!/^\d+$/.test(count)) throw new MediaError(400, "Confirm the episode count before deleting.");
+  await deleteSeries(Number(req.params.seriesId), Number(count));
+  res.redirect(303, adminViewPath(req, "series"));
 });
 
 adminRouter.post("/series/:seriesId/poster", requireAdmin, async (req, res, next) => {
