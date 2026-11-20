@@ -2,6 +2,12 @@
   "expo": {
     "name": "AfroReel",
     "slug": "afroreel",
+    "owner": "rellow-media",
+    "extra": {
+      "eas": {
+        "projectId": "8cd3dde0-5d63-418c-b9fa-d3726f0b38b0"
+      }
+    },
     "version": "1.0.0",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -29,7 +35,9 @@
       },
       "package": "com.afroreel.app",
       "versionCode": 1,
-      "permissions": ["INTERNET"]
+      "permissions": [
+        "INTERNET"
+      ]
     },
     "web": {},
     "plugins": [
