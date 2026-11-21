@@ -91,6 +91,12 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS daily_viewers (
+  view_date DATE NOT NULL,
+  user_id VARCHAR(80) NOT NULL,
+  PRIMARY KEY (view_date, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS watch_progress (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id VARCHAR(80) NOT NULL,
@@ -134,3 +140,18 @@ CREATE TABLE IF NOT EXISTS episode_comments (
 -- Then create the first admin by replacing the hash below:
 INSERT INTO admins (name, email, password_hash)
 VALUES ('Admin', 'admin@example.com', '$2y$12$nj9LV6Ai2sdXnRwrxKYW6OOyUn5r2F11MWj3aMAnD3P0sRzHKySVu');
+
+CREATE TABLE IF NOT EXISTS media_catalog_lock (
+  id TINYINT UNSIGNED PRIMARY KEY
+) ENGINE=InnoDB;
+INSERT IGNORE INTO media_catalog_lock (id) VALUES (1);
+CREATE TABLE IF NOT EXISTS media_cleanup (
+  account_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  service ENUM('Stream','Images') NOT NULL,
+  asset_id VARCHAR(190) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  next_attempt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_error VARCHAR(500) NULL,
+  PRIMARY KEY (account_id, service, asset_id),
+  INDEX due (account_id, next_attempt)
+) ENGINE=InnoDB;

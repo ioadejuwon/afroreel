@@ -1,5 +1,6 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { episodePreviewId, imageDeliveryUrl, importEpisodePreview } from "./cloudflare";
+import { mediaTransaction, queueAssets, rowAssets } from "./media-catalog";
 import { pool } from "./db";
 
 type PreviewSource = RowDataPacket & {
@@ -15,14 +16,24 @@ async function savePreview(episode: PreviewSource): Promise<boolean> {
   const { cloudflare_video_uid: uid, frame_time_ms: time } = episode;
   const target = imageDeliveryUrl(episodePreviewId(uid, time), "public");
   if (target && episode.thumbnail_url === target) return false;
-  const url = await importEpisodePreview(uid, time);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `UPDATE episodes SET thumbnail_url = ?
-      WHERE id = ? AND cloudflare_video_uid = ? AND cloudflare_ready = 1
-        AND COALESCE(cloudflare_thumbnail_time_ms, duration_seconds * 100, 0) = ?`,
-    [url, episode.id, uid, time],
-  );
-  return result.affectedRows > 0;
+  return mediaTransaction(async db => {
+    const [current] = await db.execute<PreviewSource[]>(
+      `SELECT ${previewColumns} FROM episodes WHERE id = ? AND cloudflare_video_uid = ? AND cloudflare_ready = 1`,
+      [episode.id, uid],
+    );
+    const source = current[0];
+    if (!source || source.frame_time_ms !== time || (target && source.thumbnail_url === target)) return false;
+    const url = await importEpisodePreview(uid, time);
+    const [result] = await db.execute<ResultSetHeader>(
+      `UPDATE episodes SET thumbnail_url = ?
+        WHERE id = ? AND cloudflare_video_uid = ? AND cloudflare_ready = 1
+          AND COALESCE(cloudflare_thumbnail_time_ms, duration_seconds * 100, 0) = ?`,
+      [url, episode.id, uid, time],
+    );
+    if (!result.affectedRows) await queueAssets(db, [{ service: "Images", id: episodePreviewId(uid, time) }]);
+    else if (source.thumbnail_url) await queueAssets(db, rowAssets({ thumbnail_url: source.thumbnail_url }));
+    return result.affectedRows > 0;
+  });
 }
 
 export async function ensureStreamPreview(uid: string): Promise<void> {

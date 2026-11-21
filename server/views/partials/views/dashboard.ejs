@@ -1,69 +1,104 @@
-<section class="view<%= initialView === 'dashboard' ? ' active' : '' %>" id="dashboard" aria-label="Dashboard">
-  <div class="dashboard-hero">
+<%
+  const count = episodes.length;
+  const issues = catalog.queue.length;
+  const uploadsUrl = adminPath + "/episodes#video-uploads";
+  const queueUrl = adminPath + "/episodes?filter=needs-video#video-uploads";
+  const unit = (n, one, many = one + "s") => n + " " + (n === 1 ? one : many);
+  const healthNotes = [];
+  if (catalog.missing) healthNotes.push(unit(catalog.missing, "episode") + (catalog.missing === 1 ? " is" : " are") + " missing a video.");
+  if (catalog.failed) healthNotes.push(unit(catalog.failed, "upload") + " failed.");
+  if (catalog.inProgress) healthNotes.push(unit(catalog.inProgress, "video") + (catalog.inProgress === 1 ? " is" : " are") + " uploading or processing.");
+  const metrics = [
+    ["Viewers", audience.viewers.toLocaleString("en"), "Total tracked"],
+    ["Watch time", audience.watchTime, "From saved progress"],
+    ["Unlocks", audience.unlocks.toLocaleString("en"), "Coin unlocks so far"],
+    ["Catalog", unit(series.length, "series", "series"), unit(count, "episode") + (count ? (catalog.liveCount === count ? " · all live" : " · " + catalog.liveCount + " live") : "")],
+  ];
+%>
+<section class="view active" id="dashboard" aria-labelledby="dashboard-title">
+  <div class="library-heading dashboard-heading">
     <div>
-      <h2>Hello, <span><%= String(admin.name || "Admin").split(" ")[0] %></span></h2>
-      <p>Plan releases, monitor growth, and keep the AfroReel catalog moving.</p>
+      <h1 id="dashboard-title">Hello, <span><%= String(admin.name || "Admin").trim().split(/\s+/)[0] %></span></h1>
+      <p>Here’s what needs your attention today.</p>
+    </div>
+    <div class="dashboard-actions">
+      <% if (count) { %><a class="ghost-button" href="<%= uploadsUrl %>">Upload video</a>
+      <% } else if (series.length) { %><a class="ghost-button" href="<%= adminPath %>/episodes#episode-form">Create first episode</a><% } %>
+      <a class="primary-button" href="<%= adminPath %>/series/new"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Create series</a>
     </div>
   </div>
 
-  <div class="metric-grid">
-    <% dashboard.metrics.forEach((metric) => { %>
-      <article class="metric-card<%= metric.featured ? ' is-featured' : '' %>">
-        <span><%= metric.label %></span>
-        <strong><%= metric.value %></strong>
-        <em><%= metric.note %></em>
-      </article>
-    <% }) %>
-  </div>
+  <% if (issues) { %>
+    <aside class="dashboard-alert" aria-label="Upload issues">
+      <span class="alert-icon"><svg class="icon" aria-hidden="true"><use href="#i-warning"/></svg></span>
+      <div>
+        <strong><%= unit(issues, "episode") %> <%= issues === catalog.missing ? (issues === 1 ? "is waiting for a video" : "are waiting for a video") : (issues === 1 ? "needs upload attention" : "need upload attention") %></strong>
+        <p><%= issues === catalog.missing ? "Upload a video to make each episode ready to publish." : "Review missing videos and retry failed uploads." %></p>
+      </div>
+      <a class="primary-button" href="<%= queueUrl %>">Open queue</a>
+    </aside>
+  <% } %>
 
-  <div class="content-grid">
-    <article class="panel">
-      <div class="panel-header">
-        <h2>Release Focus</h2>
-        <span>This week</span>
-      </div>
-      <div class="focus-card">
-        <strong><%= dashboard.releaseFocus.title %></strong>
-        <span><%= dashboard.releaseFocus.note %></span>
-        <button class="primary-button" type="button" data-view-target="series"><%= dashboard.releaseFocus.actionLabel %></button>
-      </div>
-    </article>
+  <dl class="library-metrics dashboard-metrics" aria-label="Dashboard totals">
+    <% for (const [label, value, note] of metrics) { %>
+      <div><dt><%= label %></dt><dd><%= value %><small><%= note %></small></dd></div>
+    <% } %>
+  </dl>
 
-    <article class="panel span-2">
-      <div class="panel-header">
-        <h2>Priority Queue</h2>
-        <span>Needs action</span>
-      </div>
-      <table>
-        <thead>
-          <tr><th>Title</th><th>Status</th><th>Due</th></tr>
-        </thead>
-        <tbody>
-          <% if (dashboard.priorityQueue.length === 0) { %>
-            <tr><td colspan="3">No episodes in the queue yet.</td></tr>
-          <% } else { %>
-            <% dashboard.priorityQueue.forEach((item) => { %>
-              <tr>
-                <td><%= item.title %></td>
-                <td><span class="status <%= item.statusClass %>"><%= item.statusLabel %></span></td>
-                <td><%= item.dueLabel %></td>
-              </tr>
-            <% }) %>
-          <% } %>
-        </tbody>
-      </table>
-    </article>
+  <div class="dashboard-panels">
+    <div class="dashboard-column">
+      <section class="dashboard-panel" aria-labelledby="needs-action-title">
+        <header><h2 id="needs-action-title">Needs action</h2><span><%= unit(issues, "item") %></span></header>
+        <% for (const { episode, issue } of catalog.queue.slice(0, 5)) { %>
+          <div class="dashboard-row issue-row">
+            <div><strong><%= episode.series_title %></strong><small>Ep <%= episode.episode_number %>: <%= episode.title %></small></div>
+            <span class="dashboard-badge issue-badge"><%= issue %></span>
+            <a class="ghost-button" href="<%= adminPath %>/episodes#upload-<%= episode.id %>" aria-label="<%= issue === 'Needs video' ? 'Upload video' : 'Retry upload' %> for <%= episode.series_title %>, episode <%= episode.episode_number %>"><%= issue === "Needs video" ? "Upload video" : "Retry upload" %></a>
+          </div>
+        <% } %>
+        <% if (!issues) { %><p class="dashboard-empty">All caught up. No uploads need attention.</p><% } %>
+        <% if (issues > 5) { %><a class="dashboard-more" href="<%= queueUrl %>">View all <%= issues %> items</a><% } %>
+      </section>
 
-    <article class="panel">
-      <div class="panel-header">
-        <h2>Unlocks</h2>
-        <span>All time</span>
-      </div>
-      <div class="stack">
-        <% dashboard.unlockSummary.forEach((item) => { %>
-          <div><span><%= item.label %></span><strong><%= item.value %></strong></div>
-        <% }) %>
-      </div>
-    </article>
+      <section class="dashboard-panel" aria-labelledby="recent-title">
+        <header><h2 id="recent-title">Recently live</h2><a href="<%= uploadsUrl %>">View all episodes</a></header>
+        <% for (const { episode, seriesPublicId } of catalog.recentlyLive) { %>
+          <a class="dashboard-row recent-row" href="<%= adminPath %>/series/<%= encodeURIComponent(seriesPublicId) %>#episode-<%= episode.id %>">
+            <span><strong><%= episode.series_title %></strong><small> · Ep <%= episode.episode_number %>: <%= episode.title %></small></span>
+            <span class="dashboard-badge live-badge">Live</span>
+          </a>
+        <% } %>
+        <% if (!catalog.recentlyLive.length) { %><p class="dashboard-empty">Published episodes with a ready video appear here.</p><% } %>
+      </section>
+    </div>
+
+    <div class="dashboard-column">
+      <section class="dashboard-panel health-panel" aria-labelledby="health-title">
+        <header><h2 id="health-title">Video health</h2></header>
+        <div class="health-total"><span>Ready</span><strong><%= catalog.ready %> of <%= count %></strong></div>
+        <progress aria-label="Episodes with a ready video" value="<%= catalog.ready %>" max="<%= count || 1 %>"></progress>
+        <p><%= healthNotes.join(" ") || (count ? "Every episode has a ready video." : "No episodes yet.") %></p>
+      </section>
+
+      <section class="dashboard-panel trend-panel" aria-labelledby="trend-title">
+        <header><h2 id="trend-title">Viewers over time</h2></header>
+        <% const trend = audience.trend; if (trend.showChart) { %>
+          <figure class="viewer-chart"><figcaption>Daily unique viewers · Last 14 days (UTC)</figcaption>
+            <ol aria-label="Daily viewer counts">
+              <% for (const day of trend.days) { %>
+                <li title="<%= day.label %> · <%= unit(day.viewers, 'viewer') %>"><span class="sr-only"><%= day.day %>: <%= unit(day.viewers, 'viewer') %></span>
+                  <span aria-hidden="true" style="height:<%= day.viewers / trend.peak * 100 %>%"></span>
+                </li>
+              <% } %>
+            </ol>
+            <div class="chart-range"><span><%= trend.days[0].label %></span><span>Peak <%= trend.peak %></span><span><%= trend.days[13].label %></span></div>
+          </figure>
+        <% } else { %>
+          <div class="trend-empty"><svg class="icon" aria-hidden="true"><use href="#i-analytics"/></svg>
+            <p>Not enough data yet. The chart appears after two days of viewing activity.</p>
+          </div>
+        <% } %>
+      </section>
+    </div>
   </div>
 </section>

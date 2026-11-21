@@ -1,12 +1,52 @@
-<section class="view" id="episodes" aria-label="Episode management">
+<% const uploads = queueOnly ? catalog.queue : catalog.uploads; %>
+<section class="view<%= initialView === 'episodes' ? ' active' : '' %>" id="episodes" aria-label="Episode management">
   <div class="section-head split-head">
     <div>
       <h2>Episodes</h2>
-      <span class="section-note"><%= episodes.length %> episode<%= episodes.length === 1 ? '' : 's' %> in the release queue.</span>
+      <span class="section-note" data-episode-summary><%= uploads.length %> episode<%= uploads.length === 1 ? '' : 's' %> <%= queueOnly ? "with an upload issue" : "in the catalog" %>.</span>
     </div>
-    <button class="primary-button" type="button" data-focus-target="episode-form">New Episode</button>
+    <% if (series.length) { %><a class="primary-button episode-link" href="#episode-form">New episode</a>
+    <% } else { %><a class="primary-button episode-link" href="<%= adminPath %>/series/new">Create series</a><% } %>
   </div>
 
+  <div class="panel upload-panel" id="video-uploads" tabindex="-1" <%= queueOnly ? "data-upload-queue" : "" %>>
+    <div class="panel-header">
+      <h2><%= queueOnly ? "Needs video or retry" : "Video uploads" %></h2>
+      <% if (queueOnly) { %><a class="dashboard-more" href="<%= adminPath %>/episodes#video-uploads">View all episodes</a>
+      <% } else if (catalog.queue.length) { %><a class="dashboard-more" href="<%= adminPath %>/episodes?filter=needs-video#video-uploads">Needs action (<%= catalog.queue.length %>)</a><% } %>
+    </div>
+    <% if (queueOnly) { %><p class="queue-feedback" role="status"></p><% } %>
+    <% if (uploads.length === 0) { %>
+      <div class="empty-card action-empty">
+        <strong><%= queueOnly ? "All caught up. No uploads need attention." : "No episodes yet." %></strong>
+        <% if (!queueOnly && series.length) { %><a class="ghost-button episode-link" href="#episode-form">Create first episode</a><% } %>
+      </div>
+    <% } else { %>
+      <div class="episode-upload-list">
+        <% uploads.forEach(({ episode, video }) => { %>
+          <article class="episode-upload-card" data-episode-id="<%= episode.id %>" data-video-uid="<%= video.uid || '' %>">
+            <div class="episode-main">
+              <span class="episode-kicker">Ep <%= episode.episode_number %> · <%= episode.series_title %></span>
+              <strong><%= episode.title %></strong>
+              <div class="episode-meta">
+                <span><%= episode.is_free ? 'Free' : 'Locked' %></span>
+                <span><%= episode.is_free ? 0 : episode.coin_cost %> coins</span>
+                <span data-video-state><%= video.label %></span>
+                <span class="status <%= episode.status === 'processing' ? 'review' : episode.status %>" data-status-label><%= episode.status %></span>
+              </div>
+            </div>
+            <%- include("episode-upload-controls", { video, episode, uploadId: "upload-" + episode.id }) %>
+            <form class="inline-form" method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status" data-status-form data-entity-type="episode">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <input type="hidden" name="status" value="<%= episode.status === 'live' ? 'draft' : 'live' %>" />
+              <button class="ghost-button" type="submit" data-status-button><%= episode.status === 'live' ? 'Draft' : 'Publish' %></button>
+            </form>
+          </article>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+  <% if (series.length) { %>
   <form class="panel content-form episode-composer" id="episode-form" method="post" action="<%= basePath %>/admin/episodes" data-episode-create-form>
     <div class="form-intro span-2">
       <p class="eyebrow">Create</p>
@@ -58,41 +98,5 @@
     <span class="span-2 form-status" role="status" data-create-episode-status></span>
     <button class="primary-button" type="submit">Create Episode</button>
   </form>
-
-  <div class="panel upload-panel">
-    <div class="panel-header">
-      <h2>Video Uploads</h2>
-      <span>Cloudflare Stream</span>
-    </div>
-    <% if (episodes.length === 0) { %>
-      <div class="empty-card action-empty">
-        <strong>No episodes yet.</strong>
-        <button class="ghost-button" type="button" data-focus-target="episode-form">Create first episode</button>
-      </div>
-    <% } else { %>
-      <div class="episode-upload-list">
-        <% episodes.forEach((episode) => { %>
-          <% const video = videoUploadResponse(episode); %>
-          <article class="episode-upload-card" data-episode-id="<%= episode.id %>" data-video-uid="<%= video.uid || '' %>">
-            <div class="episode-main">
-              <span class="episode-kicker">Ep <%= episode.episode_number %> · <%= episode.series_title %></span>
-              <strong><%= episode.title %></strong>
-              <div class="episode-meta">
-                <span><%= episode.is_free ? 'Free' : 'Locked' %></span>
-                <span><%= episode.is_free ? 0 : episode.coin_cost %> coins</span>
-                <span data-video-state><%= video.label %></span>
-                <span class="status <%= episode.status === 'processing' ? 'review' : episode.status %>" data-status-label><%= episode.status %></span>
-              </div>
-            </div>
-            <%- include("episode-upload-controls", { video }) %>
-            <form class="inline-form" method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status" data-status-form data-entity-type="episode">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <input type="hidden" name="status" value="<%= episode.status === 'live' ? 'draft' : 'live' %>" />
-              <button class="ghost-button" type="submit" data-status-button><%= episode.status === 'live' ? 'Draft' : 'Publish' %></button>
-            </form>
-          </article>
-        <% }) %>
-      </div>
-    <% } %>
-  </div>
+  <% } %>
 </section>

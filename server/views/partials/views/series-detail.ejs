@@ -1,4 +1,4 @@
-<section class="view" id="series-detail" aria-label="Series detail">
+<section class="view<%= initialView === 'series-detail' ? ' active' : '' %>" id="series-detail" aria-label="Series detail">
   <% if (!selectedSeries) { %>
     <article class="empty-card">Series not found.</article>
   <% } else { %>
@@ -57,7 +57,7 @@
         <div class="episode-upload-list">
           <% selectedEpisodes.forEach((episode) => { %>
             <% const video = videoUploadResponse(episode); %>
-            <article class="episode-upload-card" data-episode-id="<%= episode.id %>" data-video-uid="<%= video.uid || '' %>">
+            <article class="episode-upload-card" id="episode-<%= episode.id %>" tabindex="-1" data-episode-id="<%= episode.id %>" data-video-uid="<%= video.uid || '' %>">
               <div class="episode-main">
                 <span class="episode-kicker">Ep <%= episode.episode_number %></span>
                 <strong><%= episode.title %></strong>
@@ -68,7 +68,7 @@
                   <span class="status <%= episode.status === 'processing' ? 'review' : episode.status %>" data-status-label><%= episode.status %></span>
                 </div>
               </div>
-              <%- include("episode-upload-controls", { video }) %>
+              <%- include("episode-upload-controls", { video, episode }) %>
               <div class="series-episode-actions">
                 <form method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status" data-status-form data-entity-type="episode">
                   <input type="hidden" name="_csrf" value="<%= csrfToken %>" />

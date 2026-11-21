@@ -2,6 +2,9 @@ import { createHmac, generateKeyPairSync, verify, type KeyObject } from "node:cr
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createImageDirectUpload,
+  deleteCloudflareAsset,
+  verifyCleanupCatalog,
+  listCloudflareAssets,
   createPlaybackUrl,
   createThumbnailUrl,
   createTusUpload,
@@ -24,7 +27,7 @@ const { cloudflare } = vi.hoisted(() => ({
     streamPrivateKey: "",
   },
 }));
-vi.mock("./config", () => ({ config: { cloudflare } }));
+vi.mock("./config", () => ({ config: { cloudflare, publicBaseUrl: "https://afroreel.example/app", basePath: "/app" } }));
 
 const uid = "a".repeat(32);
 let publicKey: KeyObject;
@@ -157,5 +160,55 @@ describe("Cloudflare Images", () => {
       success: true, result: { id, requireSignedURLs: false, variants },
     }));
     await expect(verifyPosterImage(id)).resolves.toBeUndefined();
+  });
+});
+
+describe("Cloudflare cleanup and inventory", () => {
+  it("requires the configured account webhook to point at this catalog before cleanup", async () => {
+    const webhook = (host: string) => Response.json({
+      success: true, result: { notificationUrl: `https://${host}/app/webhooks/cloudflare/stream` },
+    });
+    const request = vi.fn().mockResolvedValueOnce(webhook("other.example")).mockResolvedValueOnce(webhook("afroreel.example"));
+    vi.stubGlobal("fetch", request);
+    await expect(verifyCleanupCatalog()).rejects.toThrow("different catalog");
+    await expect(verifyCleanupCatalog()).resolves.toBeUndefined();
+    expect(request.mock.calls.every(([url, init]) => url.endsWith("/stream/webhook") && !init.method)).toBe(true);
+  });
+
+  it("sends account-scoped DELETEs with the matching token and accepts an absent asset", async () => {
+    const request = vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", request);
+    await deleteCloudflareAsset("Stream", uid);
+    await deleteCloudflareAsset("Images", "old-poster");
+    for (const [i, path, token] of [[0, "/stream/" + uid, cloudflare.apiToken], [1, "/images/v1/old-poster", cloudflare.imagesApiToken]] as const) {
+      const [url, options] = request.mock.calls[i];
+      expect(url).toBe("https://api.cloudflare.com/client/v4/accounts/test-account" + path);
+      expect(options.method).toBe("DELETE");
+      expect(options.headers.get("Authorization")).toBe("Bearer " + token);
+    }
+  });
+
+  it("follows image inventory cursors using GET and rejects repeated cursors", async () => {
+    const page = () => Response.json({ success: true, result: {
+      continuation_token: "next", images: [{ id: "old", meta: { kind: "afroreel-poster" } }],
+    } });
+    const request = vi.fn().mockResolvedValueOnce(page()).mockResolvedValueOnce(page());
+    vi.stubGlobal("fetch", request);
+    const scan = listCloudflareAssets("Images");
+    expect((await scan.next()).value).toMatchObject({ id: "old", ownership: "AfroReel poster metadata" });
+    await scan.next();
+    await expect(scan.next()).rejects.toThrow("repeated a cursor");
+    expect(request.mock.calls[1][0]).toContain("continuation_token=next");
+    expect(request.mock.calls.every(([, init]) => !init.method || init.method === "GET")).toBe(true);
+  });
+
+  it("marks truncated Stream inventory incomplete", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ success: true, total: 2, result: [
+      { uid, created: "2026-01-01T00:00:00Z" },
+    ] })));
+    const scan = listCloudflareAssets("Stream");
+    expect((await scan.next()).value).toMatchObject({ id: uid, ownership: "uncertain" });
+    await expect(scan.next()).rejects.toThrow("1 of 2");
   });
 });

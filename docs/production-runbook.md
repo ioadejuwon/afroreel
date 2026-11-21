@@ -52,3 +52,11 @@ After the local test, verify signed webhooks on staging before promoting the cha
 ## Backups and recovery
 
 Run encrypted daily MySQL backups with 30-day retention and a separate weekly copy. Perform a staging restore test monthly. Record restore duration and row-count validation in the release log.
+
+## Cloudflare media cleanup
+
+Deploy migration 004 and the application to staging first. With staging-only media, duplicate a series that has a poster, replace an episode video, and confirm the previous version still plays until the new one is ready. Delete the original series and run `npm run media:cleanup`. Verify in the staging Cloudflare dashboard that the previous video, its preview, and the deleted episodes are gone, and open the duplicate to confirm its shared poster still loads. Delete the duplicate and run cleanup again to verify the last poster reference is released.
+
+After staging verification, deploy to production. From the deployed cPanel checkout, select the same Node 22 binary used by Passenger and run `bash scripts/install-media-cron.sh`. The installer preserves other cron jobs and schedules cleanup every five minutes. Review the installed entry with `crontab -l`. Cron output reports provider failures; the queue retains the asset ID, last error, attempt count and next retry. Retries start at five minutes and back off to one day. Each environment must have its own catalog and Cloudflare account. Before deleting, the worker verifies the account’s Stream webhook matches this deployment’s public URL and base path. This prevents a development checkout with production Cloudflare tokens from cleaning up the production library. When rolling back to an older release, suspend the cleanup cron before switching the Passenger entry, and restore the matching media entry before resuming.
+
+For the production historical audit, run `node --env-file=.env dist/server/src/run-media.js audit` in the cPanel checkout. On a source installation use `npm run media:audit`. Save the output privately for review. Each candidate records the service, ID and ownership evidence against the catalog snapshot. Inventory changes during a scan can affect the results. Check that both services report completion and the command exits successfully. This command only reads inventory and catalog data.

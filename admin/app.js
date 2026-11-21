@@ -73,7 +73,7 @@ function setView(nextView, options = {}) {
 
   if (viewTitle) {
     viewTitle.textContent = titles[nextView] || "Dashboard";
-    viewTitle.hidden = navView === "series";
+    viewTitle.hidden = navView === "series" || nextView === "dashboard";
   }
 
   if (options.updateUrl !== false) {
@@ -99,6 +99,7 @@ function setSidebarOpen(isOpen) {
 
 navItems.forEach((item) => {
   item.addEventListener("click", (event) => {
+    if (item.dataset.view === "dashboard" || serverInitialView === "dashboard") return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     setView(item.dataset.view);
@@ -192,6 +193,41 @@ document.querySelectorAll(".series-cover img").forEach(img => {
   if (img.complete && !img.naturalWidth) showFallback();
 });
 
+const notifications = document.querySelector(".notifications");
+let notificationRequest = 0;
+async function refreshNotifications() {
+  if (!notifications) return;
+  const request = ++notificationRequest;
+  try {
+    const response = await fetch(notifications.dataset.notificationsUrl, {
+      headers: { accept: "text/html" }, cache: "no-store",
+    });
+    if (!response.ok || response.redirected) return;
+    const html = await response.text();
+    if (request !== notificationRequest) return;
+    const list = notifications.querySelector("[data-notification-list]");
+    if (list.contains(document.activeElement)) return;
+    list.innerHTML = html;
+    notifications.querySelector(".notification-dot").hidden = !list.querySelector("li");
+  } catch {
+    // The server-rendered list stays available if the connection drops.
+  }
+}
+notifications?.addEventListener("toggle", () => {
+  if (notifications.open) refreshNotifications();
+});
+notifications?.addEventListener("keydown", event => {
+  if (event.key === "Escape" && notifications.open) {
+    notifications.open = false;
+    notifications.querySelector("summary").focus();
+  }
+});
+window.addEventListener("click", event => {
+  if (notifications?.open && (!notifications.contains(event.target) || event.target.closest("a"))) {
+    notifications.open = false;
+  }
+});
+
 const cardMenus = Array.from(document.querySelectorAll(".card-menu"));
 cardMenus.forEach(menu => {
   menu.addEventListener("toggle", () => {
@@ -228,7 +264,7 @@ library?.querySelectorAll("[data-delete-series]").forEach(button => {
     deleteDialog.querySelector("form").action = button.dataset.deleteSeries;
     deleteDialog.querySelector('[name="expectedEpisodes"]').value = count;
     deleteDialog.querySelector("#delete-impact").textContent =
-      `Permanently delete “${title}” and its ${count} episode${count === 1 ? "" : "s"}? This also removes linked unlocks, watch progress, reactions, and comments.`;
+      `Permanently delete “${title}” and its ${count} episode${count === 1 ? "" : "s"}? This also removes linked unlocks, watch progress, reactions, and comments. Unused videos, posters, and previews will be deleted from Cloudflare.`;
     deleteDialog.showModal();
   });
 });
@@ -368,6 +404,7 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
       updateVideoCard(item, video);
       const finalStatus = await pollStreamStatus(episodeId, video);
       updateVideoCard(item, finalStatus);
+      reconcileUploadQueue(item, finalStatus);
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Upload failed.");
       if (refreshButton && item.dataset.videoUid) refreshButton.disabled = false;
@@ -454,6 +491,7 @@ document.querySelectorAll("[data-refresh-video]").forEach((button) => {
     try {
       const video = await postJson(appUrl(`/admin/api/episodes/${episodeId}/refresh-video`), {});
       updateVideoCard(item, video);
+      reconcileUploadQueue(item, video);
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Refresh failed.");
       button.disabled = false;
@@ -515,7 +553,7 @@ document.querySelectorAll("[data-delete-episode-form]").forEach((form) => {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    if (!window.confirm("Remove this episode?")) {
+    if (!window.confirm("Permanently delete this episode? Its unused video and preview will be deleted from Cloudflare.")) {
       return;
     }
 
@@ -580,6 +618,21 @@ function updateVideoCard(item, video) {
   if (uploadButton) uploadButton.textContent = video.activeReady ? "Replace video" : "Upload";
   const publishForm = item.querySelector("[data-status-form]");
   if (publishForm) updateStatusForm(publishForm, video.status, "episode");
+}
+
+function reconcileUploadQueue(item, video) {
+  refreshNotifications();
+  const queue = item.closest("[data-upload-queue]");
+  if (!queue || !["ready", "processing"].includes(video.state)) return;
+  const episode = item.querySelector(".episode-main strong").textContent;
+  const moveFocus = item.contains(document.activeElement) || document.activeElement === document.body;
+  item.remove();
+  const remaining = queue.querySelectorAll("[data-episode-id]").length;
+  queue.closest(".view").querySelector("[data-episode-summary]").textContent =
+    `${remaining} episode${remaining === 1 ? "" : "s"} with an upload issue.`;
+  queue.querySelector(".queue-feedback").textContent =
+    `${episode}: ${video.label}.${remaining ? "" : " All caught up."}`;
+  if (moveFocus) (queue.querySelector("[data-video-file]") || queue).focus();
 }
 
 async function pollStreamStatus(episodeId, video) {
@@ -736,7 +789,7 @@ function focusTarget(targetId) {
   target.classList.add("is-highlighted");
   window.setTimeout(() => target.classList.remove("is-highlighted"), 1100);
 
-  const firstField = target.querySelector("input, select, textarea, button");
+  const firstField = target.querySelector('input:not([type="hidden"]), select, textarea, button');
   firstField?.focus({ preventScroll: true });
 }
 
@@ -748,6 +801,24 @@ const initialView = viewFromPath() || window.location.hash.replace("#", "") || s
 if (initialView) {
   setView(initialView, { updateUrl: false });
 }
+
+function focusEpisodeAnchor() {
+  const id = window.location.hash.slice(1);
+  const target = id && document.getElementById(id);
+  if (!target || !target.closest(".view.active")) return;
+  if (id === "episode-form") {
+    focusTarget(id);
+  } else if (id.startsWith("upload-") || id.startsWith("episode-") || id === "video-uploads") {
+    const card = target.closest(".episode-upload-card");
+    (card || target).scrollIntoView({ block: "start" });
+    target.focus({ preventScroll: true });
+  }
+}
+window.addEventListener("hashchange", focusEpisodeAnchor);
+window.addEventListener("pageshow", event => {
+  if (event.persisted && serverInitialView === "dashboard") window.location.reload();
+  else if (!event.persisted && window.location.hash) focusEpisodeAnchor();
+});
 
 async function postJson(url, body) {
   const response = await fetch(url, {

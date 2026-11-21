@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { type RowDataPacket, type ResultSetHeader } from "mysql2";
-import { MediaError, type StreamVideo } from "./cloudflare";
+import { isStreamVideoUid, MediaError, verifyPosterImage, type StreamVideo } from "./cloudflare";
 import { allowLocalMedia } from "./config";
 import { pool } from "./db";
+import { mediaTransaction, retirePoster, seriesAssets, episodeAssets, queueAssets } from "./media-catalog";
 import { ensureStreamPreview } from "./episode-previews";
 
 export type SeriesStatus = "draft" | "live";
@@ -185,7 +186,8 @@ export type EpisodeRow = RowDataPacket & {
   hook: string | null;
   is_free: 0 | 1;
   coin_cost: number;
-  release_date: string | null;
+  release_date: Date | string | null;
+  created_at: Date | string;
   status: EpisodeStatus;
   cloudflare_video_uid: string | null;
   cloudflare_ready: 0 | 1;
@@ -203,38 +205,6 @@ export type EpisodeMedia = RowDataPacket & Pick<EpisodeRow,
   "id" | "status" | "cloudflare_video_uid" | "cloudflare_ready" | "cloudflare_pending_uid" |
   "cloudflare_upload_state" | "cloudflare_upload_error"
 >;
-
-type DashboardSummaryRow = RowDataPacket & {
-  series_total: number | string;
-  live_series: number | string;
-  draft_series: number | string;
-  episodes_total: number | string;
-  live_episodes: number | string;
-  draft_episodes: number | string;
-  processing_episodes: number | string;
-  ready_videos: number | string;
-  missing_videos: number | string;
-  viewers_total: number | string;
-  unlocks_total: number | string;
-  watch_seconds_total: number | string;
-};
-
-type DashboardUnlockMethodRow = RowDataPacket & {
-  method: "coins" | "ad" | "free";
-  unlock_count: number | string;
-};
-
-type DashboardQueueRow = RowDataPacket & {
-  id: number;
-  series_title: string;
-  episode_number: number;
-  title: string;
-  status: EpisodeStatus;
-  release_date: Date | string | null;
-  cloudflare_video_uid: string | null;
-  cloudflare_ready: 0 | 1;
-  cloudflare_upload_state: EpisodeRow["cloudflare_upload_state"];
-};
 
 type UserSummaryRow = RowDataPacket & {
   total_users: number | string;
@@ -257,30 +227,6 @@ type AdminUserRow = RowDataPacket & {
   ad_unlock_count: number | string;
   last_watched_title: string | null;
   last_watched_at: Date | string | null;
-};
-
-export type DashboardData = {
-  metrics: Array<{
-    label: string;
-    value: string;
-    note: string;
-    featured?: boolean;
-  }>;
-  releaseFocus: {
-    title: string;
-    note: string;
-    actionLabel: string;
-  };
-  priorityQueue: Array<{
-    title: string;
-    statusLabel: string;
-    statusClass: string;
-    dueLabel: string;
-  }>;
-  unlockSummary: Array<{
-    label: string;
-    value: string;
-  }>;
 };
 
 export type UsersData = {
@@ -580,165 +526,6 @@ function compactNumber(value: number): string {
   return new Intl.NumberFormat("en", { notation: value >= 10000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
 }
 
-function dueLabel(value: Date | string | null): string {
-  if (!value) {
-    return "Unscheduled";
-  }
-
-  const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  date.setHours(0, 0, 0, 0);
-
-  const diffDays = Math.round((date.getTime() - today.getTime()) / 86400000);
-  if (diffDays === 0) {
-    return "Today";
-  }
-  if (diffDays === 1) {
-    return "Tomorrow";
-  }
-  if (diffDays === -1) {
-    return "Yesterday";
-  }
-  if (diffDays < 0) {
-    return `${Math.abs(diffDays)}d overdue`;
-  }
-
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date);
-}
-
-function episodeStatusDisplay(row: DashboardQueueRow): { label: string; className: string } {
-  if (row.cloudflare_upload_state === "failed") {
-    return { label: "Upload failed", className: "blocked" };
-  }
-  if (row.cloudflare_upload_state === "uploading") {
-    return { label: "Uploading", className: "review" };
-  }
-  if (row.cloudflare_upload_state === "processing" || row.status === "processing") {
-    return { label: "Processing", className: "review" };
-  }
-  if (!row.cloudflare_video_uid) {
-    return { label: "Needs video", className: "blocked" };
-  }
-  if (row.cloudflare_ready) {
-    return { label: row.status === "live" ? "Live" : "Ready", className: "live" };
-  }
-
-  return { label: "Review", className: "review" };
-}
-
-export async function getDashboardData(): Promise<DashboardData> {
-  const [summaryRows] = await pool.execute<DashboardSummaryRow[]>(
-    `SELECT
-        (SELECT COUNT(*) FROM series) AS series_total,
-        (SELECT COUNT(*) FROM series WHERE status = 'live') AS live_series,
-        (SELECT COUNT(*) FROM series WHERE status = 'draft') AS draft_series,
-        (SELECT COUNT(*) FROM episodes) AS episodes_total,
-        (SELECT COUNT(*) FROM episodes WHERE status = 'live') AS live_episodes,
-        (SELECT COUNT(*) FROM episodes WHERE status = 'draft') AS draft_episodes,
-        (SELECT COUNT(*) FROM episodes WHERE status = 'processing' OR cloudflare_upload_state = 'processing') AS processing_episodes,
-        (SELECT COUNT(*) FROM episodes WHERE cloudflare_ready = 1) AS ready_videos,
-        (SELECT COUNT(*) FROM episodes WHERE cloudflare_video_uid IS NULL AND cloudflare_pending_uid IS NULL) AS missing_videos,
-        (SELECT COUNT(DISTINCT user_id) FROM watch_progress) AS viewers_total,
-        (SELECT COUNT(*) FROM episode_unlocks) AS unlocks_total,
-        (SELECT COALESCE(SUM(progress_seconds), 0) FROM watch_progress) AS watch_seconds_total`,
-  );
-
-  const [unlockRows] = await pool.execute<DashboardUnlockMethodRow[]>(
-    `SELECT method, COUNT(*) AS unlock_count
-       FROM episode_unlocks
-      GROUP BY method`,
-  );
-
-  const [queueRows] = await pool.execute<DashboardQueueRow[]>(
-    `SELECT e.id, s.title AS series_title, e.episode_number, e.title, e.status,
-            e.release_date, e.cloudflare_video_uid, e.cloudflare_ready, e.cloudflare_upload_state
-       FROM episodes e
-       INNER JOIN series s ON s.id = e.series_id
-      ORDER BY
-        CASE
-          WHEN e.cloudflare_upload_state IS NOT NULL OR e.status = 'processing' THEN 0
-          WHEN e.cloudflare_video_uid IS NULL THEN 1
-          WHEN e.status = 'draft' THEN 2
-          ELSE 3
-        END,
-        COALESCE(e.release_date, '9999-12-31') ASC,
-        e.updated_at DESC
-      LIMIT 5`,
-  );
-
-  const summary = summaryRows[0];
-  const seriesTotal = numberValue(summary?.series_total);
-  const liveSeries = numberValue(summary?.live_series);
-  const draftSeries = numberValue(summary?.draft_series);
-  const episodesTotal = numberValue(summary?.episodes_total);
-  const liveEpisodes = numberValue(summary?.live_episodes);
-  const draftEpisodes = numberValue(summary?.draft_episodes);
-  const processingEpisodes = numberValue(summary?.processing_episodes);
-  const readyVideos = numberValue(summary?.ready_videos);
-  const missingVideos = numberValue(summary?.missing_videos);
-  const viewersTotal = numberValue(summary?.viewers_total);
-  const unlocksTotal = numberValue(summary?.unlocks_total);
-  const watchMinutesTotal = Math.round(numberValue(summary?.watch_seconds_total) / 60);
-
-  const unlocksByMethod = new Map(unlockRows.map((row) => [row.method, numberValue(row.unlock_count)]));
-  const priorityQueue = queueRows.map((row) => {
-    const status = episodeStatusDisplay(row);
-    return {
-      title: `${row.series_title} Ep ${row.episode_number}: ${row.title}`,
-      statusLabel: status.label,
-      statusClass: status.className,
-      dueLabel: dueLabel(row.release_date),
-    };
-  });
-
-  const focusRow = queueRows[0];
-  const focusStatus = focusRow ? episodeStatusDisplay(focusRow) : null;
-
-  return {
-    metrics: [
-      {
-        label: "Total Viewers",
-        value: compactNumber(viewersTotal),
-        note: `${compactNumber(watchMinutesTotal)} watch minutes tracked`,
-        featured: true,
-      },
-      {
-        label: "Series",
-        value: compactNumber(seriesTotal),
-        note: `${compactNumber(liveSeries)} live / ${compactNumber(draftSeries)} draft`,
-      },
-      {
-        label: "Episodes",
-        value: compactNumber(episodesTotal),
-        note: `${compactNumber(liveEpisodes)} live / ${compactNumber(processingEpisodes + draftEpisodes)} pending`,
-      },
-      {
-        label: "Unlocks",
-        value: compactNumber(unlocksTotal),
-        note: `${compactNumber(readyVideos)} ready videos / ${compactNumber(missingVideos)} missing`,
-      },
-    ],
-    releaseFocus: focusRow
-      ? {
-          title: focusRow.series_title,
-          note: `Ep ${focusRow.episode_number}: ${focusRow.title} · ${focusStatus?.label ?? focusRow.status}`,
-          actionLabel: "Open Queue",
-        }
-      : {
-          title: "No releases yet",
-          note: "Create a series and add the first episode.",
-          actionLabel: "Create Episode",
-        },
-    priorityQueue,
-    unlockSummary: [
-      { label: "Coin unlocks", value: compactNumber(unlocksByMethod.get("coins") ?? 0) },
-      { label: "Ad rewards", value: compactNumber(unlocksByMethod.get("ad") ?? 0) },
-      { label: "Free unlocks", value: compactNumber(unlocksByMethod.get("free") ?? 0) },
-    ],
-  };
-}
-
 export async function getUsersData(): Promise<UsersData> {
   const [summaryRows] = await pool.execute<UserSummaryRow[]>(
     `SELECT
@@ -867,53 +654,71 @@ export async function createSeries(input: SeriesDetails & {
 }): Promise<CreatedSeries> {
   const slug = await uniqueSlug(input.title);
   const seriesId = await uniqueSeriesId();
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [seriesId, input.title, slug, input.synopsis || null, input.genres || null, input.posterUrl, input.posterImageId, input.status],
-  );
+  return mediaTransaction(async db => {
+    if (input.posterImageId) await verifyPosterImage(input.posterImageId);
+    const [result] = await db.execute<ResultSetHeader>(
+      `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [seriesId, input.title, slug, input.synopsis || null, input.genres || null, input.posterUrl, input.posterImageId, input.status],
+    );
 
-  return {
-    id: result.insertId,
-    seriesId,
-  };
+    return {
+      id: result.insertId,
+      seriesId,
+    };
+  });
 }
 
 export async function editSeries(seriesId: number, details: SeriesDetails): Promise<void> {
-  const [result] = await pool.execute<ResultSetHeader>(
-    `UPDATE series SET title = ?, synopsis = ?, genres = ?, poster_image_id = COALESCE(?, poster_image_id)
-      WHERE id = ?`,
-    [details.title, details.synopsis || null, details.genres || null, details.posterImageId, seriesId],
-  );
-  if (!result.affectedRows) throw new MediaError(404, "Series not found.");
+  await mediaTransaction(async db => {
+    if (details.posterImageId) {
+      await verifyPosterImage(details.posterImageId);
+      await retirePoster(db, seriesId, details.posterImageId);
+    }
+    const [result] = await db.execute<ResultSetHeader>(
+      `UPDATE series SET title = ?, synopsis = ?, genres = ?, poster_image_id = COALESCE(?, poster_image_id)
+        WHERE id = ?`,
+      [details.title, details.synopsis || null, details.genres || null, details.posterImageId, seriesId],
+    );
+    if (!result.affectedRows) throw new MediaError(404, "Series not found.");
+  });
 }
 
 export async function duplicateSeries(sourceId: number): Promise<void> {
   const publicId = await uniqueSeriesId();
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status)
-     SELECT ?, LEFT(CONCAT('Copy of ', title), 190), CONCAT('copy-', ?), synopsis, genres, poster_url, poster_image_id, 'draft'
-       FROM series WHERE id = ?`,
-    [publicId, publicId, sourceId],
-  );
-  if (!result.affectedRows) throw new MediaError(404, "Series not found.");
+  await mediaTransaction(async db => {
+    const [result] = await db.execute<ResultSetHeader>(
+      `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status)
+       SELECT ?, LEFT(CONCAT('Copy of ', title), 190), CONCAT('copy-', ?), synopsis, genres, poster_url, poster_image_id, 'draft'
+         FROM series WHERE id = ?`,
+      [publicId, publicId, sourceId],
+    );
+    if (!result.affectedRows) throw new MediaError(404, "Series not found.");
+  });
 }
 
 export async function deleteSeries(seriesId: number, expectedEpisodes: number): Promise<void> {
-  const [result] = await pool.execute<ResultSetHeader>(
-    "DELETE FROM series WHERE id = ? AND (SELECT COUNT(*) FROM episodes WHERE series_id = ?) = ?",
-    [seriesId, seriesId, expectedEpisodes],
-  );
-  if (!result.affectedRows) throw new MediaError(409, "The series changed. Refresh the library and review it before deleting.");
+  await mediaTransaction(async db => {
+    const assets = [...await seriesAssets(db, seriesId), ...await episodeAssets(db, "WHERE series_id = ?", [seriesId])];
+    const [result] = await db.execute<ResultSetHeader>(
+      "DELETE FROM series WHERE id = ? AND (SELECT COUNT(*) FROM episodes WHERE series_id = ?) = ?",
+      [seriesId, seriesId, expectedEpisodes],
+    );
+    if (!result.affectedRows) throw new MediaError(409, "The series changed. Refresh the library and review it before deleting.");
+    await queueAssets(db, assets);
+  });
 }
 
 export async function setSeriesPoster(seriesId: number, imageId: string): Promise<boolean> {
-  // Keep the legacy location so clearing the replacement ID can restore the original poster.
-  const [result] = await pool.execute<ResultSetHeader>(
-    "UPDATE series SET poster_image_id = ? WHERE id = ?",
-    [imageId, seriesId],
-  );
-  return result.affectedRows > 0;
+  return mediaTransaction(async db => {
+    await verifyPosterImage(imageId);
+    await retirePoster(db, seriesId, imageId);
+    const [result] = await db.execute<ResultSetHeader>(
+      "UPDATE series SET poster_image_id = ? WHERE id = ?",
+      [imageId, seriesId],
+    );
+    return result.affectedRows > 0;
+  });
 }
 
 export async function listEpisodes(includeDrafts = true, userId?: string): Promise<EpisodeRow[]> {
@@ -981,24 +786,26 @@ export async function createEpisode(input: {
   status: EpisodeStatus;
 }): Promise<number> {
   const episodeId = await uniqueEpisodeId();
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO episodes
-       (episode_id, series_id, episode_number, title, hook, is_free, coin_cost, release_date, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      episodeId,
-      input.seriesId,
-      input.episodeNumber,
-      input.title,
-      input.hook || null,
-      input.isFree ? 1 : 0,
-      input.coinCost,
-      input.releaseDate,
-      input.status,
-    ],
-  );
+  return mediaTransaction(async db => {
+    const [result] = await db.execute<ResultSetHeader>(
+      `INSERT INTO episodes
+         (episode_id, series_id, episode_number, title, hook, is_free, coin_cost, release_date, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        episodeId,
+        input.seriesId,
+        input.episodeNumber,
+        input.title,
+        input.hook || null,
+        input.isFree ? 1 : 0,
+        input.coinCost,
+        input.releaseDate,
+        input.status,
+      ],
+    );
 
-  return result.insertId;
+    return result.insertId;
+  });
 }
 
 export async function getEpisodeDatabaseId(episodeIdentifier: string | number): Promise<number | null> {
@@ -1034,13 +841,19 @@ export async function getEpisodeMedia(episodeId: number): Promise<EpisodeMedia |
 }
 
 export async function beginEpisodeStreamUpload(episodeId: number, uid: string, replacedUid: string | null): Promise<boolean> {
-  const [result] = await pool.execute<ResultSetHeader>(
-    `UPDATE episodes
-        SET cloudflare_pending_uid = ?, cloudflare_upload_state = 'uploading', cloudflare_upload_error = NULL
-      WHERE id = ? AND cloudflare_pending_uid <=> ?`,
-    [uid, episodeId, replacedUid],
-  );
-  return result.affectedRows > 0;
+  return mediaTransaction(async db => {
+    const [result] = await db.execute<ResultSetHeader>(
+      `UPDATE episodes
+          SET cloudflare_pending_uid = ?, cloudflare_upload_state = 'uploading', cloudflare_upload_error = NULL
+        WHERE id = ? AND cloudflare_pending_uid <=> ?`,
+      [uid, episodeId, replacedUid],
+    );
+    const displaced = result.affectedRows ? replacedUid : uid;
+    if (isStreamVideoUid(displaced) && (!result.affectedRows || displaced !== uid)) {
+      await queueAssets(db, [{ service: "Stream", id: displaced }]);
+    }
+    return result.affectedRows > 0;
+  });
 }
 
 export async function markEpisodeUploadComplete(episodeId: number, uid: string): Promise<void> {
@@ -1052,15 +865,19 @@ export async function markEpisodeUploadComplete(episodeId: number, uid: string):
 }
 
 export async function attachLocalVideo(episodeId: number, videoUrl: string): Promise<void> {
-  await pool.execute(
-    `UPDATE episodes
-        SET cloudflare_video_uid = ?, cloudflare_ready = 1,
-            cloudflare_pending_uid = NULL, cloudflare_upload_state = NULL, cloudflare_upload_error = NULL,
-            cloudflare_thumbnail_time_ms = NULL, thumbnail_url = NULL, duration_seconds = NULL,
-            status = IF(status = 'processing', 'draft', status)
-      WHERE id = ?`,
-    [`local:${videoUrl}`, episodeId],
-  );
+  await mediaTransaction(async db => {
+    const assets = await episodeAssets(db, "WHERE id = ?", [episodeId]);
+    await db.execute(
+      `UPDATE episodes
+          SET cloudflare_video_uid = ?, cloudflare_ready = 1,
+              cloudflare_pending_uid = NULL, cloudflare_upload_state = NULL, cloudflare_upload_error = NULL,
+              cloudflare_thumbnail_time_ms = NULL, thumbnail_url = NULL, duration_seconds = NULL,
+              status = IF(status = 'processing', 'draft', status)
+        WHERE id = ?`,
+      [`local:${videoUrl}`, episodeId],
+    );
+    await queueAssets(db, assets);
+  });
 }
 
 export async function setSeriesStatus(seriesId: number, status: SeriesStatus): Promise<void> {
@@ -1085,7 +902,11 @@ export async function setEpisodeStatus(episodeId: number, status: EpisodeStatus)
 }
 
 export async function deleteEpisode(episodeId: number): Promise<void> {
-  await pool.execute("DELETE FROM episodes WHERE id = ?", [episodeId]);
+  await mediaTransaction(async db => {
+    const assets = await episodeAssets(db, "WHERE id = ?", [episodeId]);
+    await db.execute("DELETE FROM episodes WHERE id = ?", [episodeId]);
+    await queueAssets(db, assets);
+  });
 }
 
 export async function applyStreamVideoStatus(video: StreamVideo): Promise<void> {
@@ -1116,15 +937,19 @@ export async function applyStreamVideoStatus(video: StreamVideo): Promise<void> 
     return;
   }
 
-  await pool.execute(
-    `UPDATE episodes
-        SET cloudflare_video_uid = ?, cloudflare_ready = 1, duration_seconds = ?,
-            thumbnail_url = NULL, cloudflare_thumbnail_time_ms = ?,
-            status = IF(status = 'processing', 'draft', status),
-            cloudflare_pending_uid = NULL, cloudflare_upload_state = NULL, cloudflare_upload_error = NULL
-      WHERE ${currentUpload}`,
-    [video.uid, video.durationSeconds, video.thumbnailTimeMs, video.uid, video.uid],
-  );
+  await mediaTransaction(async db => {
+    const assets = await episodeAssets(db, `WHERE ${currentUpload}`, [video.uid, video.uid]);
+    await db.execute(
+      `UPDATE episodes
+          SET cloudflare_video_uid = ?, cloudflare_ready = 1, duration_seconds = ?,
+              thumbnail_url = NULL, cloudflare_thumbnail_time_ms = ?,
+              status = IF(status = 'processing', 'draft', status),
+              cloudflare_pending_uid = NULL, cloudflare_upload_state = NULL, cloudflare_upload_error = NULL
+        WHERE ${currentUpload}`,
+      [video.uid, video.durationSeconds, video.thumbnailTimeMs, video.uid, video.uid],
+    );
+    await queueAssets(db, assets.filter(asset => asset.service !== "Stream" || asset.id !== video.uid));
+  });
   await ensureStreamPreview(video.uid);
 }
 
@@ -1431,12 +1256,29 @@ export async function listLikedEpisodes(userId: string): Promise<ProfileEpisode[
 }
 
 export async function saveProgress(episodeId: string, userId: string, progressSeconds: number): Promise<void> {
-  await pool.execute(
-    `INSERT INTO watch_progress (user_id, episode_id, progress_seconds)
-     VALUES (?, ?, ?)
-     ON DUPLICATE KEY UPDATE progress_seconds = VALUES(progress_seconds)`,
-    [userId, episodeId, progressSeconds],
-  );
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute(
+      `INSERT INTO watch_progress (user_id, episode_id, progress_seconds)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE progress_seconds = VALUES(progress_seconds)`,
+      [userId, episodeId, progressSeconds],
+    );
+    if (progressSeconds > 0) {
+      await connection.execute(
+        `INSERT INTO daily_viewers (view_date, user_id) VALUES (UTC_DATE(), ?)
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
+        [userId],
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function getEpisodeEngagement(episodeId: string, userId: string): Promise<EpisodeEngagement> {

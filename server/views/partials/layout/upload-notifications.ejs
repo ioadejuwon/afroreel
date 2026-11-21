@@ -1,0 +1,10 @@
+<% if (queue.length) { %>
+  <ul>
+    <% for (const { episode, issue } of queue) { %>
+      <li><a href="<%= adminPath %>/episodes#upload-<%= episode.id %>">
+        <strong><%= episode.series_title %></strong>
+        <span>Ep <%= episode.episode_number %>: <%= episode.title %> · <%= issue %></span>
+      </a></li>
+    <% } %>
+  </ul>
+<% } else { %><p>All caught up.</p><% } %>

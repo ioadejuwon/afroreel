@@ -60,6 +60,7 @@ async function cloudflareRequest(
   } catch {
     throw new MediaError(502, `Cloudflare ${service} could not ${action}. Try again.`);
   }
+  if (response.status === 404 && options.method === "DELETE") return response;
   if (!response.ok) {
     if (service === "Stream" && response.status === 413) {
       const payload = await response.json().catch(() => null) as { errors?: Array<{ code?: number }> } | null;
@@ -305,4 +306,77 @@ export async function importEpisodePreview(uid: string, frameTimeMs: number): Pr
     throw new MediaError(502, "Cloudflare did not return the public episode preview.");
   }
   return url;
+}
+
+// Development checkouts can have working production Cloudflare tokens and a different catalog.
+export async function verifyCleanupCatalog(): Promise<void> {
+  const origin = URL.parse(config.publicBaseUrl);
+  if (!origin || origin.protocol !== "https:") {
+    throw new Error("Set the catalog's HTTPS PUBLIC_BASE_URL before running Cloudflare cleanup.");
+  }
+  const expected = new URL((config.basePath || "") + "/webhooks/cloudflare/stream", origin).href;
+  const response = await cloudflareRequest("Stream", "/stream/webhook", "verify the catalog webhook");
+  const webhook = await cloudflareResult<{ notificationUrl?: string }>(response, "Missing Stream webhook.");
+  if (webhook.notificationUrl !== expected) {
+    throw new Error("The Cloudflare account webhook belongs to a different catalog. Check the environment configuration.");
+  }
+}
+
+export async function deleteCloudflareAsset(service: "Images" | "Stream", id: string): Promise<void> {
+  const valid = service === "Stream" ? isStreamVideoUid(id) : imageIdSchema.safeParse(id).success;
+  if (!valid) throw new Error(`Invalid ${service} asset ID`);
+  const path = service === "Stream" ? "/stream/" : "/images/v1/";
+  const response = await cloudflareRequest(service, path + encodeURIComponent(id), "delete the asset", { method: "DELETE" });
+  if (service === "Images" && response.status !== 404 && response.status !== 204) {
+    const payload = await response.json();
+    if (payload?.success !== true) throw new MediaError(502, "Cloudflare Images did not confirm deletion.");
+  }
+}
+
+type InventoryAsset = { id: string; ownership: "AfroReel poster metadata" | "uncertain" };
+
+export async function* listCloudflareAssets(service: "Stream" | "Images"): AsyncGenerator<InventoryAsset> {
+  if (service === "Images") {
+    let cursor = "";
+    const cursors = new Set<string>();
+    do {
+      const query = new URLSearchParams({ per_page: "1000" });
+      if (cursor) query.set("continuation_token", cursor);
+      const response = await cloudflareRequest(service, "/images/v2?" + query, "list images");
+      const page = z.object({
+        images: z.array(z.object({ id: z.string().min(1), meta: z.record(z.string(), z.unknown()).nullish() })),
+        continuation_token: z.string().nullish(),
+      }).parse(await cloudflareResult(response, "Invalid Images inventory response."));
+      for (const image of page.images) {
+        yield { id: image.id, ownership: image.meta?.kind === "afroreel-poster" ? "AfroReel poster metadata" : "uncertain" };
+      }
+      cursor = page.continuation_token ?? "";
+      if (cursor && cursors.has(cursor)) throw new Error("Images inventory repeated a cursor.");
+      cursors.add(cursor);
+    } while (cursor);
+    return;
+  }
+
+  const query = new URLSearchParams({ limit: "1000", asc: "false", include_counts: "true" });
+  const seen = new Set<string>();
+  let expected: number | undefined;
+  for (;;) {
+    const response = await cloudflareRequest(service, "/stream?" + query, "list videos");
+    const page = z.object({
+      success: z.literal(true), total: z.number().int().nonnegative(),
+      result: z.array(z.object({ uid: uidSchema, created: z.string().min(1) })),
+    }).parse(await response.json());
+    expected ??= page.total;
+    for (const video of page.result) {
+      if (seen.has(video.uid)) continue;
+      seen.add(video.uid);
+      yield { id: video.uid, ownership: "uncertain" };
+    }
+    if (seen.size === expected) return;
+    const end = page.result.at(-1)?.created;
+    if (page.result.length < 1000 || !end || end === query.get("end")) {
+      throw new Error(`Stream inventory returned ${seen.size} of ${expected} videos.`);
+    }
+    query.set("end", end);
+  }
 }

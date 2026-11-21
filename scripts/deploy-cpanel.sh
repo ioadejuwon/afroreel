@@ -74,3 +74,13 @@ const url = process.env.PUBLIC_BASE_URL.replace(/\/+$/, '') + '/health/ready';
   throw Error('Production readiness check failed: ' + url);
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
 NODE
+
+# Cron and the audit CLI must resolve the same private release as Passenger.
+media_entry="$app/dist/server/src/run-media.js"
+if [[ -f "$media_entry" ]]; then cp -p "$media_entry" "$release/previous-media-entry.js"; fi
+node - "$release" <<'NODE' > "$media_entry.next"
+const release = process.argv[2];
+console.log('process.chdir(' + JSON.stringify(release) + ');');
+console.log('require(' + JSON.stringify(release + '/dist/server/src/run-media.js') + ');');
+NODE
+mv -f "$media_entry.next" "$media_entry"

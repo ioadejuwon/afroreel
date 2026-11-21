@@ -10,7 +10,6 @@ import {
   deleteSeries,
   duplicateSeries,
   editSeries,
-  getDashboardData,
   getEpisodeMedia,
   getUsersData,
   listEpisodes,
@@ -30,10 +29,10 @@ import {
   isStreamVideoUid,
   MediaError,
   STREAM_MAX_DURATION_SECONDS,
-  verifyPosterImage,
 } from "../cloudflare";
 import { allowLocalMedia, config } from "../config";
-import { posterUrl } from "../media";
+import { buildDashboardCatalog, buildUploadList, getDashboardAudience } from "../dashboard";
+import { posterUrl, videoUploadResponse } from "../media";
 import { saveLocalVideoStream, savePosterDataUrl } from "../uploads";
 
 export const adminRouter = Router();
@@ -57,8 +56,11 @@ async function renderAdmin(req: Request, res: Response, options: {
   initialView?: string;
   seriesDetailId?: string;
 } = {}): Promise<void> {
-  const [series, episodes, dashboard, users] = await Promise.all([listSeries(true), listEpisodes(true), getDashboardData(), getUsersData()]);
   const initialView = options.initialView ?? "dashboard";
+  const [series, episodes, audience, users] = await Promise.all([
+    listSeries(true), listEpisodes(true), initialView === "dashboard" ? getDashboardAudience() : null, getUsersData(),
+  ]);
+  const catalog = buildDashboardCatalog(series, episodes);
   const selectedSeries = options.seriesDetailId
     ? series.find((item) => item.series_id === options.seriesDetailId || String(item.id) === options.seriesDetailId) ?? null
     : null;
@@ -69,7 +71,9 @@ async function renderAdmin(req: Request, res: Response, options: {
     csrfToken: req.csrfToken(),
     series,
     episodes,
-    dashboard,
+    catalog,
+    audience,
+    queueOnly: initialView === "episodes" && req.query.filter === "needs-video",
     users,
     selectedSeries,
     selectedEpisodes,
@@ -162,6 +166,11 @@ for (const page of ["edit", "preview"]) {
   });
 }
 
+adminRouter.get("/api/upload-notifications", requireAdmin, async (_req, res) => {
+  const queue = buildUploadList(await listEpisodes(true)).filter(item => item.issue);
+  res.set("Cache-Control", "private, no-store").render("partials/layout/upload-notifications", { queue });
+});
+
 adminRouter.get("/:view", requireAdmin, async (req, res, next) => {
   try {
     const view = String(req.params.view || "");
@@ -182,7 +191,6 @@ async function seriesDetails(req: Request) {
   if (!title || [...title].length > 190) throw new MediaError(400, "Enter a series title of 1 to 190 characters.");
   if ([...genres].length > 255) throw new MediaError(400, "Genres must be 255 characters or fewer.");
   const posterImageId = stringBody(req.body.posterImageId) || null;
-  if (posterImageId) await verifyPosterImage(posterImageId);
   return { title, genres, synopsis: stringBody(req.body.synopsis), posterImageId };
 }
 
@@ -235,7 +243,6 @@ adminRouter.post("/series/:seriesId/poster", requireAdmin, async (req, res, next
     const imageId = stringBody(req.body?.posterImageId);
     if (seriesId < 1 || !imageId) throw new MediaError(400, "Choose a poster for this series.");
 
-    await verifyPosterImage(imageId);
     if (!await setSeriesPoster(seriesId, imageId)) throw new MediaError(404, "Series not found.");
     const redirectTo = adminPath(req, `/series/${seriesId}`);
     if (wantsJson(req)) {
@@ -475,31 +482,6 @@ async function reserveStreamUpload(req: Request, res: Response, episodeId: numbe
     throw new MediaError(409, "Another upload changed this episode. Refresh it and try again.");
   }
   res.set("Cache-Control", "no-store").json(upload);
-}
-
-function videoUploadResponse(episode: EpisodeMedia) {
-  const uid = episode.cloudflare_pending_uid ?? episode.cloudflare_video_uid;
-  const activeUid = episode.cloudflare_video_uid;
-  const activeReady = Boolean(episode.cloudflare_ready) &&
-    (isStreamVideoUid(activeUid) || (allowLocalMedia && Boolean(activeUid?.startsWith("local:"))));
-  const state = episode.cloudflare_upload_state ?? (activeReady ? "ready" : isStreamVideoUid(uid) ? "processing" : "missing");
-  const labels = {
-    uploading: "Uploading",
-    processing: "Processing",
-    ready: isStreamVideoUid(activeUid) ? "Ready · Cloudflare Stream" : "Ready · Local video",
-    failed: "Upload failed",
-    missing: "Missing video",
-  };
-  return {
-    uid,
-    state,
-    ready: state === "ready",
-    activeReady,
-    label: labels[state] + (activeReady && state !== "ready" ? " · Existing video still active" : ""),
-    status: episode.status,
-    error: episode.cloudflare_upload_error,
-    canRefresh: isStreamVideoUid(uid) && (state === "uploading" || state === "processing"),
-  };
 }
 
 function stringBody(value: unknown): string {

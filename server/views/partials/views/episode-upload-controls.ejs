@@ -1,6 +1,6 @@
 <div class="upload-cell">
   <label class="video-dropzone" data-video-dropzone>
-    <input type="file" accept="video/*" data-video-file />
+    <input type="file" accept="video/*" data-video-file <% if (typeof uploadId !== "undefined") { %>id="<%= uploadId %>"<% } %> aria-label="Choose video for <%= episode.series_title %>, episode <%= episode.episode_number %>: <%= episode.title %>" />
     <span>Video file</span>
     <strong data-video-file-name>Drop video here or choose file</strong>
     <em>MP4 or supported video file</em>

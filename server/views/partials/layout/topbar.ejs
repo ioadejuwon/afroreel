@@ -7,8 +7,16 @@
     <input name="q" type="search" aria-label="Search series and episodes" placeholder="Search series and episodes" autocomplete="off" />
   </form>
   <div class="top-actions">
-    <button class="icon-button" type="button" aria-label="Messages" title="Messages" disabled><svg class="icon" aria-hidden="true"><use href="#i-mail"/></svg></button>
-    <button class="icon-button" type="button" aria-label="Notifications" title="Notifications" disabled><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg></button>
+    <details class="notifications" data-notifications-url="<%= adminPath %>/api/upload-notifications">
+      <summary class="icon-button" aria-label="Upload notifications" title="Upload notifications">
+        <svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>
+        <span class="notification-dot" aria-hidden="true" <%= catalog.queue.length ? "" : "hidden" %>></span>
+      </summary>
+      <section class="notification-panel" aria-label="Upload notifications">
+        <h2>Upload notifications</h2>
+        <div data-notification-list><%- include("upload-notifications", { queue: catalog.queue }) %></div>
+      </section>
+    </details>
     <form class="logout-form" method="post" action="<%= adminPath %>/logout">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <button class="ghost-button" type="submit">Log out</button>
