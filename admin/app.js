@@ -288,7 +288,7 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
           item.dataset.videoUid = upload.uid;
           setStatus(item.querySelector("[data-video-state]"), "Uploading");
         },
-        (progress) => setStatus(status, `Uploading to Cloudflare… ${progress}%`),
+        (progress) => setStatus(status, `Uploading video… ${progress}%`),
       );
       updateVideoCard(item, video);
       const finalStatus = await pollStreamStatus(episodeId, video);
@@ -360,8 +360,8 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
         draftEpisode.episodeId,
         file,
         undefined,
-        () => setStatus(status, "Uploading to Cloudflare…"),
-        (progress) => setStatus(status, `Uploading to Cloudflare… ${progress}%`),
+        () => setStatus(status, "Uploading video…"),
+        (progress) => setStatus(status, `Uploading video… ${progress}%`),
       );
       setStatus(status, video.label);
       await pollStreamStatus(draftEpisode.episodeId, video);

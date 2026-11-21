@@ -166,7 +166,7 @@ export async function verifyPosterImage(imageId: string): Promise<void> {
     variants?: string[];
   }>(response, "Cloudflare did not confirm the poster upload.");
   if (image.id !== imageId || image.draft === true || image.requireSignedURLs !== false) {
-    throw new MediaError(422, "The poster must finish uploading to Cloudflare before it can be saved.");
+    throw new MediaError(422, "The poster must finish uploading before it can be saved.");
   }
   if (POSTER_VARIANTS.some((variant) => {
     const url = imageDeliveryUrl(imageId, variant);
