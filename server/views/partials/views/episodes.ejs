@@ -1,8 +1,8 @@
 <% const uploads = queueOnly ? catalog.queue : catalog.uploads; %>
 <section class="view<%= initialView === 'episodes' ? ' active' : '' %>" id="episodes" aria-label="Episode management">
-  <div class="section-head split-head">
+  <div class="library-heading section-head split-head">
     <div>
-      <h2>Episodes</h2>
+      <h1>Episodes</h1>
       <span class="section-note" data-episode-summary><%= uploads.length %> episode<%= uploads.length === 1 ? '' : 's' %> <%= queueOnly ? "with an upload issue" : "in the catalog" %>.</span>
     </div>
     <% if (series.length) { %><a class="primary-button episode-link" href="#episode-form">New episode</a>
@@ -73,10 +73,7 @@
       <span>Title</span>
       <input name="title" required placeholder="The Photograph" />
     </label>
-    <label>
-      <span>Coin cost</span>
-      <input type="number" name="coinCost" min="0" value="5" />
-    </label>
+    <%- include("episode-access", { number: null }) %>
     <label class="span-2">
       <span>Hook</span>
       <textarea name="hook" rows="3" placeholder="The one-line cliffhanger."></textarea>
@@ -85,10 +82,7 @@
       <span>Release date</span>
       <input type="date" name="releaseDate" />
     </label>
-    <label class="check-row">
-      <input type="checkbox" name="isFree" />
-      <span>Free episode</span>
-    </label>
+
     <label class="span-2 video-create-dropzone" data-video-create-dropzone>
       <input type="file" accept="video/*" data-create-video-file required />
       <span>Video file</span>

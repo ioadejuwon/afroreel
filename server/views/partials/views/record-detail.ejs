@@ -1,0 +1,15 @@
+<% const {kind, record:r} = report; %>
+<section class="view active admin-report" id="record-detail">
+  <header class="library-heading"><div><h1><%= recordLabel(r.category) %> #<%= r.record_id %></h1><p><%= ledgers[kind].title %> · <%= formatTime(r.recorded) %></p></div>
+    <a class="ghost-button episode-link" href="<%= adminPath %>/monetization?tab=<%= kind %>"><%= ledgers[kind].title %></a></header>
+  <section class="dashboard-panel report-panel"><header><h2>Record details</h2></header><dl class="record-details">
+    <div><dt>User</dt><dd><% if (r.account_id) { %><a href="<%= adminPath %>/users/<%= encodeURIComponent(r.account_id) %>"><%= r.name || r.account_id %></a><small><%= r.email %></small><% } else { %><%= r.user_id %><% } %></dd></div>
+    <div><dt><%= kind === "purchases" ? "Status" : "Type" %></dt><dd><%= recordLabel(r.category) %></dd></div>
+    <% if (kind !== "unlocks") { %><div><dt>Coin amount</dt><dd><%= r.coin_amount %></dd></div><% } %>
+    <% if (kind === "wallet" && r.description) { %><div><dt>Description</dt><dd><%= r.description %></dd></div><% } %>
+    <% if (kind === "purchases") { %>
+      <% for (const [label,value] of [["Platform",r.platform],["Store product",r.product_id],["Store transaction ID",r.provider_transaction_id]]) { %><div><dt><%= label %></dt><dd><%= value %></dd></div><% } %>
+    <% } else if (episodeHref(r)) { %><div><dt>Episode</dt><dd><a href="<%= episodeHref(r) %>"><%= r.series_title %> · Ep <%= r.episode_number %>: <%= r.episode_title %></a></dd></div>
+    <% } else if (r.category === "spend") { %><div><dt>Episode</dt><dd>Unavailable</dd></div><% } %>
+  </dl></section>
+</section>

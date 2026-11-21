@@ -1,16 +1,22 @@
-<section class="view" id="monetization" aria-label="Monetization">
-  <div class="content-grid">
-    <article class="panel span-2">
-      <div class="panel-header"><h2>Revenue Mix</h2><span>Coins vs ads</span></div>
-      <div class="line-chart"><span></span></div>
-    </article>
-    <article class="panel">
-      <div class="panel-header"><h2>Packages</h2><span>Conversion</span></div>
-      <div class="stack">
-        <div><span>Starter · 100 coins</span><strong>7.8%</strong></div>
-        <div><span>Plus · 300 coins</span><strong>12.1%</strong></div>
-        <div><span>Premium · 1000 coins</span><strong>4.4%</strong></div>
-      </div>
-    </article>
-  </div>
+<% const kind = report.kind; const ledger = ledgers[kind]; %>
+<section class="view active admin-report" id="monetization" aria-labelledby="money-title">
+  <header class="library-heading"><div><h1 id="money-title">Monetization</h1><p>Explore coin movements, store purchases, and episode access.</p></div></header>
+  <nav class="report-tabs" aria-label="Monetization reports"><% for (const [key,def] of Object.entries(ledgers)) { %><a href="<%= adminPath %>/monetization?tab=<%= key %>" <%- key === kind ? 'aria-current="page"' : '' %>><%= def.title %></a><% } %></nav>
+  <% if (kind === "purchases") { %><section class="dashboard-panel report-panel"><header><h2>Store packages</h2></header><dl class="package-list">
+    <% for (const p of coinProducts) { %><div><dt><%= p.productId %></dt><dd><%= p.coins.toLocaleString("en") %> coins</dd></div><% } %>
+  </dl></section><% } %>
+  <section class="dashboard-panel report-panel"><header><h2><%= ledger.title %></h2><span><%= report.total %> records</span></header>
+    <form class="report-filters" method="get" action="<%= adminPath %>/monetization">
+      <input type="hidden" name="tab" value="<%= kind %>"/>
+      <label><%= kind === "purchases" ? "Purchase status" : kind === "unlocks" ? "Unlock method" : "Activity type" %><select name="type"><option value="">All</option>
+        <% for (const type of ledger.types) { %><option value="<%= type %>" <%= type === report.type ? "selected" : "" %>><%= recordLabel(type) %></option><% } %></select></label>
+      <label>From (UTC)<input type="date" name="from" value="<%= report.start %>" /></label>
+      <label>Through (UTC)<input type="date" name="to" value="<%= report.end %>" /></label>
+      <button class="primary-button">Apply filters</button>
+      <% if (report.start || report.end || report.type) { %><a href="<%= adminPath %>/monetization?tab=<%= kind %>">Clear filters</a><% } %>
+    </form>
+    <% if (formError) { %><p class="form-error" role="alert"><%= formError %></p><% } else { %>
+      <%- include("transaction-list", {kind, showUser: true}) %><%- include("../layout/pagination") %>
+    <% } %>
+  </section>
 </section>

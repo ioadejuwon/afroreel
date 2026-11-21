@@ -11,8 +11,8 @@
   const metrics = [
     ["Viewers", audience.viewers.toLocaleString("en"), "Total tracked"],
     ["Watch time", audience.watchTime, "From saved progress"],
-    ["Unlocks", audience.unlocks.toLocaleString("en"), "Coin unlocks so far"],
-    ["Catalog", unit(series.length, "series", "series"), unit(count, "episode") + (count ? (catalog.liveCount === count ? " · all live" : " · " + catalog.liveCount + " live") : "")],
+    ["Unlocks", audience.unlocks.toLocaleString("en"), "Coin unlocks so far", adminPath + "/monetization?tab=unlocks&type=coins"],
+    ["Catalog", unit(series.length, "series", "series"), unit(count, "episode") + (count ? (catalog.liveCount === count ? " · all live" : " · " + catalog.liveCount + " live") : ""), adminPath + "/series"],
   ];
 %>
 <section class="view active" id="dashboard" aria-labelledby="dashboard-title">
@@ -40,8 +40,8 @@
   <% } %>
 
   <dl class="library-metrics dashboard-metrics" aria-label="Dashboard totals">
-    <% for (const [label, value, note] of metrics) { %>
-      <div><dt><%= label %></dt><dd><%= value %><small><%= note %></small></dd></div>
+    <% for (const [label, value, note, href] of metrics) { %>
+      <div><dt><% if (href) { %><a class="metric-link" href="<%= href %>"><%= label %></a><% } else { %><%= label %><% } %></dt><dd><%= value %><small><%= note %></small></dd></div>
     <% } %>
   </dl>
 

@@ -1,0 +1,10 @@
+<% if (!report.items.length) { %><p class="dashboard-empty">No records match this view.</p>
+<% } else { %><div class="table-scroll"><table class="records"><thead><tr><th>Record</th><% if(showUser) { %><th>User</th><% } %><th><%= kind === "unlocks" ? "Episode" : "Coins" %></th><th>Recorded (UTC)</th></tr></thead><tbody>
+  <% for (const r of report.items) { %><tr>
+    <td><a class="record-link" href="<%= adminPath %>/monetization/<%= kind %>/<%= r.record_id %>"><%= recordLabel(r.category) %> #<%= r.record_id %></a>
+    <% if (kind === "wallet") { %><small><%= r.description %></small><% } else if (kind === "purchases") { %><small><%= r.platform %> · <%= r.product_id %></small><% } %></td>
+    <% if (showUser) { %><td><% if (r.account_id) { %><a href="<%= adminPath %>/users/<%= encodeURIComponent(r.account_id) %>"><%= r.name || r.account_id %></a><small><%= r.email %></small><% } else { %><%= r.user_id %><% } %></td><% } %>
+    <td><% if (kind === "unlocks" && episodeHref(r)) { %><a href="<%= episodeHref(r) %>"><%= r.series_title %> · Ep <%= r.episode_number %></a><% } else { %><%= kind === "unlocks" ? "Unavailable" : r.coin_amount %><% } %></td>
+    <td><%= formatTime(r.recorded) %></td>
+  </tr><% } %>
+</tbody></table></div><% } %>

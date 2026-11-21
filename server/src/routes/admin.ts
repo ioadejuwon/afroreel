@@ -11,7 +11,6 @@ import {
   duplicateSeries,
   editSeries,
   getEpisodeMedia,
-  getUsersData,
   listEpisodes,
   listSeries,
   markEpisodeUploadComplete,
@@ -31,6 +30,9 @@ import {
   STREAM_MAX_DURATION_SECONDS,
 } from "../cloudflare";
 import { allowLocalMedia, config } from "../config";
+import { analyticsReport, ledgerName, ledgers, listRecords, recordDetail, setAccountAccess, userDirectory, userProfile } from "../admin-reports";
+import { episodeAccess, episodeDefaults, saveEpisodeDefaults } from "../admin-settings";
+import { coinProducts } from "../commerce";
 import { buildDashboardCatalog, buildUploadList, getDashboardAudience } from "../dashboard";
 import { posterUrl, videoUploadResponse } from "../media";
 import { saveLocalVideoStream, savePosterDataUrl } from "../uploads";
@@ -55,11 +57,40 @@ async function renderAdmin(req: Request, res: Response, options: {
   episodeFormError?: string;
   initialView?: string;
   seriesDetailId?: string;
+  userId?: string;
+  recordKind?: string;
+  recordId?: string;
+  formError?: string;
 } = {}): Promise<void> {
   const initialView = options.initialView ?? "dashboard";
-  const [series, episodes, audience, users] = await Promise.all([
-    listSeries(true), listEpisodes(true), initialView === "dashboard" ? getDashboardAudience() : null, getUsersData(),
+  const needsSeries = initialView === "dashboard" || initialView === "episodes" || initialView.startsWith("series");
+  const [series, episodes, audience, defaults] = await Promise.all([
+    needsSeries ? listSeries(true) : [], listEpisodes(true),
+    initialView === "dashboard" ? getDashboardAudience() : null,
+    ["episodes", "series-detail", "settings"].includes(initialView) ? episodeDefaults() : null,
   ]);
+  const query = req.query;
+  const stringParam = (key: string) => typeof query[key] === "string" ? query[key] : "";
+  let report;
+  switch (initialView) {
+    case "users": report = await userDirectory(query); break;
+    case "user-profile": report = await userProfile(options.userId!, query); break;
+    case "monetization": {
+      const kind = ledgerName(query.tab);
+      try {
+        report = await listRecords(kind, query);
+      } catch (error) {
+        if (!(error instanceof MediaError) || error.status !== 400) throw error;
+        options.status = 400;
+        options.formError = error.message;
+        report = { kind, type: stringParam("type"), start: stringParam("from"), end: stringParam("to"), total: 0 };
+      }
+      break;
+    }
+    case "record-detail": report = await recordDetail(ledgerName(options.recordKind), options.recordId!); break;
+    case "analytics": report = await analyticsReport(query.days); break;
+  }
+  const seriesFilter = ["draft", "live"].includes(stringParam("status")) ? stringParam("status") : "all";
   const catalog = buildDashboardCatalog(series, episodes);
   const selectedSeries = options.seriesDetailId
     ? series.find((item) => item.series_id === options.seriesDetailId || String(item.id) === options.seriesDetailId) ?? null
@@ -74,7 +105,29 @@ async function renderAdmin(req: Request, res: Response, options: {
     catalog,
     audience,
     queueOnly: initialView === "episodes" && req.query.filter === "needs-video",
-    users,
+    report, defaults, ledgers, coinProducts, seriesFilter,
+    recordLabel: (value: string) => ({
+      top_up: "Top-up", spend: "Spend", reward: "Reward", coins: "Coins", ad: "Ad", free: "Free",
+      verified: "Verified", revoked: "Revoked", refunded: "Refunded",
+    } as Record<string,string>)[value] ?? value,
+    catalogSearch: initialView === "series" ? stringParam("q") : "",
+    saved: query.saved === "1",
+    formError: options.formError ?? "",
+    pageHref: (overrides: Record<string, string | number>) => {
+      const params = new URLSearchParams();
+      for (const key of ["tab", "type", "from", "to", "page", "search", "status", "q", "days"]) {
+        if (stringParam(key)) params.set(key, stringParam(key));
+      }
+      for (const [key, value] of Object.entries(overrides)) {
+        if (value === "") params.delete(key);
+        else params.set(key, String(value));
+      }
+      return req.originalUrl.split("?")[0] + (params.size ? "?" + params : "");
+    },
+    formatTime: (epoch: number | null) => epoch == null ? "—" : new Date(Number(epoch) * 1000)
+      .toLocaleString("en", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }) + " UTC",
+    episodeHref: (row: { episode_db_id?: number; series_id?: string }) => row.episode_db_id && row.series_id
+      ? adminPath(req, `/series/${encodeURIComponent(row.series_id)}#episode-${row.episode_db_id}`) : null,
     selectedSeries,
     selectedEpisodes,
     posterUrl,
@@ -171,6 +224,37 @@ adminRouter.get("/api/upload-notifications", requireAdmin, async (_req, res) => 
   res.set("Cache-Control", "private, no-store").render("partials/layout/upload-notifications", { queue });
 });
 
+adminRouter.get("/users/:userId", requireAdmin, async (req, res) => {
+  await renderAdmin(req, res, { initialView: "user-profile", userId: String(req.params.userId) });
+});
+
+adminRouter.post("/users/:userId/access", requireAdmin, async (req, res) => {
+  const userId = String(req.params.userId);
+  try {
+    await setAccountAccess(userId, req.body.status, req.body.confirmation);
+  } catch (error) {
+    if (!(error instanceof MediaError) || error.status !== 400) throw error;
+    await renderAdmin(req, res, { initialView: "user-profile", userId, status: 400, formError: error.message });
+    return;
+  }
+  res.redirect(303, adminPath(req, `/users/${encodeURIComponent(userId)}?saved=1`));
+});
+
+adminRouter.get("/monetization/:kind/:id", requireAdmin, async (req, res) => {
+  await renderAdmin(req, res, { initialView: "record-detail", recordKind: String(req.params.kind), recordId: String(req.params.id) });
+});
+
+adminRouter.post("/settings", requireAdmin, async (req, res) => {
+  try {
+    await saveEpisodeDefaults(req.body.freeOpening, req.body.lockedPrice);
+  } catch (error) {
+    if (!(error instanceof MediaError) || error.status !== 400) throw error;
+    await renderAdmin(req, res, { initialView: "settings", status: 400, formError: error.message });
+    return;
+  }
+  res.redirect(303, adminPath(req, "/settings?saved=1"));
+});
+
 adminRouter.get("/:view", requireAdmin, async (req, res, next) => {
   try {
     const view = String(req.params.view || "");
@@ -260,7 +344,6 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
     const seriesId = numberBody(req.body.seriesId);
     const episodeNumber = numberBody(req.body.episodeNumber);
     const title = stringBody(req.body.title);
-    const coinCost = numberBody(req.body.coinCost);
 
     if (!seriesId || !episodeNumber || !title) {
       if (wantsJson(req)) {
@@ -283,8 +366,7 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
       episodeNumber,
       title,
       hook: stringBody(req.body.hook),
-      isFree: req.body.isFree === "on",
-      coinCost: coinCost >= 0 ? coinCost : 5,
+      ...episodeAccess(await episodeDefaults(), episodeNumber, req.body),
       releaseDate: stringBody(req.body.releaseDate) || null,
       status: enumBody<EpisodeStatus>(req.body.status, ["draft", "processing"], "draft"),
     });

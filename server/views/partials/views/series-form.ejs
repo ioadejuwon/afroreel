@@ -1,7 +1,7 @@
 <section class="view<%= initialView === (editing ? 'series-edit' : 'series-new') ? ' active' : '' %>" id="<%= editing ? 'series-edit' : 'series-new' %>" aria-label="<%= editing ? 'Edit series' : 'Create series' %>">
-  <div class="section-head split-head">
+  <div class="library-heading section-head split-head">
     <div>
-      <h2><%= editing ? 'Edit details' : 'Create Series' %></h2>
+      <h1><%= editing ? 'Edit details' : 'Create Series' %></h1>
       <% if (!editing) { %><span class="section-note">Add a title, metadata, and poster for the app catalog.</span><% } %>
     </div>
     <a class="ghost-button" href="<%= adminPath %>/series">Back to Series</a>

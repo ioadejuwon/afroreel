@@ -201,7 +201,7 @@ apiRouter.get("/series/:seriesId/episodes", async (req, res, next) => {
         thumbnailUrl: episodeThumbnailUrl(req, episode),
         durationSeconds: episode.duration_seconds,
         isFree: Boolean(episode.is_free),
-        coinCost: episode.coin_cost,
+        coinCost: episode.is_free ? 0 : episode.coin_cost,
         isUnlocked: Boolean(episode.is_unlocked),
         isLocked: !episode.is_free && !episode.is_unlocked,
         progressSeconds: episode.progress_seconds ?? 0,

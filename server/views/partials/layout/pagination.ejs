@@ -1,0 +1,7 @@
+<% if (report.pages > 1) { %>
+<nav class="report-pagination" aria-label="Result pages">
+  <% if (report.page > 1) { %><a href="<%= pageHref({page:report.page - 1}) %>">Previous</a><% } %>
+  <span>Page <%= report.page %> of <%= report.pages %></span>
+  <% if (report.page < report.pages) { %><a href="<%= pageHref({page:report.page + 1}) %>">Next</a><% } %>
+</nav>
+<% } %>

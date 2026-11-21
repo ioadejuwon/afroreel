@@ -1,0 +1,9 @@
+<label><span>Episode access</span>
+  <select name="access" data-free-opening="<%= defaults.free_opening_episodes %>">
+    <option value="default">Use series default<%= number ? (number <= defaults.free_opening_episodes ? " · Free" : " · Locked") : "" %></option>
+    <option value="free">Free</option><option value="locked">Locked</option>
+  </select>
+</label>
+<label><span>Locked episode price (coins)</span>
+  <input type="number" name="coinCost" min="0" max="4294967295" placeholder="<%= defaults.locked_coin_price %>" />
+</label>

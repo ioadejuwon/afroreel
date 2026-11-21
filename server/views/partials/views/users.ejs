@@ -1,33 +1,27 @@
-<section class="view" id="users" aria-label="User management">
-  <div class="metric-grid compact">
-    <% users.metrics.forEach((metric) => { %>
-      <article class="metric-card">
-        <span><%= metric.label %></span>
-        <strong><%= metric.value %></strong>
-        <em><%= metric.note %></em>
-      </article>
-    <% }) %>
-  </div>
-  <div class="panel">
-    <table>
-      <thead>
-        <tr><th>User</th><th>Email</th><th>Coins</th><th>Last watched</th><th>Unlocks</th><th>Status</th></tr>
-      </thead>
-      <tbody>
-        <% if (users.rows.length === 0) { %>
-          <tr><td colspan="6">No mobile users found.</td></tr>
-        <% } %>
-        <% users.rows.forEach((user) => { %>
-          <tr>
-            <td><%= user.name %></td>
-            <td><%= user.email %></td>
-            <td><%= user.coinBalance %></td>
-            <td><%= user.lastWatched %></td>
-            <td><%= user.unlockNote %></td>
-            <td><span class="status <%= user.statusClass %>"><%= user.statusLabel %></span></td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
-  </div>
+<section class="view active admin-report" id="users" aria-labelledby="users-title">
+  <header class="library-heading"><div><h1 id="users-title">Users</h1><p>Find a viewer, review their activity, or manage account access.</p></div></header>
+  <dl class="library-metrics dashboard-metrics">
+    <% for (const [label,value] of [["Active accounts",report.summary.active],["New signups · 7 days",report.summary.signups],["Coin unlockers",report.summary.coin_users],["Ad unlockers",report.summary.ad_users]]) { %>
+      <div><dt><%= label %></dt><dd><%= value %></dd></div>
+    <% } %>
+  </dl>
+  <section class="dashboard-panel report-panel" aria-labelledby="directory-title">
+    <header><h2 id="directory-title">Account directory</h2><span><%= report.total %> matching</span></header>
+    <form class="report-filters" method="get" action="<%= adminPath %>/users">
+      <label class="wide-field">Find a user<input type="search" name="search" value="<%= report.search %>" placeholder="Name, username or email" /></label>
+      <label>Account status<select name="status"><% for (const [val,label] of [["","All accounts"],["active","Active"],["suspended","Suspended"]]) { %><option value="<%= val %>" <%= report.status === val ? "selected" : "" %>><%= label %></option><% } %></select></label>
+      <button class="primary-button">Apply filters</button>
+      <% if (report.search || report.status) { %><a href="<%= adminPath %>/users">Clear filters</a><% } %>
+    </form>
+    <% if (report.items.length) { %>
+      <div class="table-scroll"><table class="records"><thead><tr><th>User</th><th>Coins</th><th>Last watched</th><th>Unlocks</th><th>Access</th></tr></thead><tbody>
+        <% for (const u of report.items) { %><tr>
+          <td><a class="record-link" href="<%= adminPath %>/users/<%= encodeURIComponent(u.user_id) %>"><%= u.name || u.user_id %></a><small><%= u.email %></small></td>
+          <td><%= u.coin_balance %></td><td><%= u.last_watched || "—" %></td><td><%= u.unlock_count %></td>
+          <td><span class="dashboard-badge <%= u.is_active ? 'live-badge' : 'issue-badge' %>"><%= u.is_active ? "Active" : "Suspended" %></span></td>
+        </tr><% } %>
+      </tbody></table></div>
+    <% } else { %><p class="dashboard-empty"><%= report.summary.total ? "No users match these filters." : "No mobile accounts yet." %></p><% } %>
+    <%- include("../layout/pagination") %>
+  </section>
 </section>

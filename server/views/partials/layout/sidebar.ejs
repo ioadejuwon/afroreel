@@ -6,7 +6,7 @@
 
   <nav class="nav-list" aria-label="Admin pages">
     <% for (const name of ["Dashboard", "Series", "Users", "Monetization", "Analytics", "Settings"]) { %>
-      <% const view = name.toLowerCase(); const active = view === initialView || (view === "series" && initialView.startsWith("series-")); %>
+      <% const view = name.toLowerCase(); const active = view === initialView || (view === "series" && initialView.startsWith("series-")) || (view === "series" && initialView === "episodes") || (view === "users" && initialView === "user-profile") || (view === "monetization" && initialView === "record-detail"); %>
       <a class="nav-item<%= active ? ' active' : '' %>" href="<%= adminPath %>/<%= view %>" data-view="<%= view %>" <%- active ? 'aria-current="page"' : '' %>>
         <svg class="icon" aria-hidden="true"><use href="#i-<%= view %>"/></svg><%= name %>
       </a>

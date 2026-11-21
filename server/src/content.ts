@@ -36,6 +36,7 @@ type EpisodeIdentityRow = RowDataPacket & {
 };
 
 type UnlockEpisodeRow = RowDataPacket & {
+  is_free: 0 | 1;
   episode_id: string;
   coin_cost: number;
   episode_number: number;
@@ -205,46 +206,6 @@ export type EpisodeMedia = RowDataPacket & Pick<EpisodeRow,
   "id" | "status" | "cloudflare_video_uid" | "cloudflare_ready" | "cloudflare_pending_uid" |
   "cloudflare_upload_state" | "cloudflare_upload_error"
 >;
-
-type UserSummaryRow = RowDataPacket & {
-  total_users: number | string;
-  active_users: number | string;
-  new_signups: number | string;
-  paying_users: number | string;
-  ad_earners: number | string;
-};
-
-type AdminUserRow = RowDataPacket & {
-  id: number;
-  user_id: string;
-  name: string;
-  email: string;
-  coin_balance: number;
-  is_active: 0 | 1;
-  last_login_at: Date | string | null;
-  created_at: Date | string;
-  unlock_count: number | string;
-  ad_unlock_count: number | string;
-  last_watched_title: string | null;
-  last_watched_at: Date | string | null;
-};
-
-export type UsersData = {
-  metrics: Array<{
-    label: string;
-    value: string;
-    note: string;
-  }>;
-  rows: Array<{
-    name: string;
-    email: string;
-    coinBalance: number;
-    lastWatched: string;
-    unlockNote: string;
-    statusLabel: string;
-    statusClass: string;
-  }>;
-};
 
 function slugify(value: string): string {
   const slug = value
@@ -520,99 +481,6 @@ export async function ensureContentSchema(): Promise<void> {
 function numberValue(value: number | string | null | undefined): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function compactNumber(value: number): string {
-  return new Intl.NumberFormat("en", { notation: value >= 10000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
-}
-
-export async function getUsersData(): Promise<UsersData> {
-  const [summaryRows] = await pool.execute<UserSummaryRow[]>(
-    `SELECT
-        (SELECT COUNT(*) FROM mobile_users) AS total_users,
-        (SELECT COUNT(*) FROM mobile_users WHERE is_active = 1) AS active_users,
-        (SELECT COUNT(*) FROM mobile_users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS new_signups,
-        (SELECT COUNT(DISTINCT user_id) FROM episode_unlocks WHERE method = 'coins') AS paying_users,
-        (SELECT COUNT(DISTINCT user_id) FROM episode_unlocks WHERE method = 'ad') AS ad_earners`,
-  );
-
-  const [rows] = await pool.execute<AdminUserRow[]>(
-    `SELECT
-        u.id,
-        u.user_id,
-        u.name,
-        u.email,
-        u.coin_balance,
-        u.is_active,
-        u.last_login_at,
-        u.created_at,
-        COALESCE(unlocks.unlock_count, 0) AS unlock_count,
-        COALESCE(unlocks.ad_unlock_count, 0) AS ad_unlock_count,
-        (
-          SELECT s.title
-            FROM watch_progress p
-            INNER JOIN episodes e ON e.episode_id = p.episode_id
-            INNER JOIN series s ON s.id = e.series_id
-           WHERE p.user_id = u.user_id
-           ORDER BY p.watched_at DESC
-           LIMIT 1
-        ) AS last_watched_title,
-        (
-          SELECT p.watched_at
-            FROM watch_progress p
-           WHERE p.user_id = u.user_id
-           ORDER BY p.watched_at DESC
-           LIMIT 1
-        ) AS last_watched_at
-       FROM mobile_users u
-       LEFT JOIN (
-         SELECT
-            user_id,
-            COUNT(*) AS unlock_count,
-            SUM(method = 'ad') AS ad_unlock_count
-          FROM episode_unlocks
-         GROUP BY user_id
-       ) unlocks ON unlocks.user_id = u.user_id
-      ORDER BY COALESCE(last_watched_at, u.last_login_at, u.created_at) DESC
-      LIMIT 50`,
-  );
-
-  const summary = summaryRows[0];
-  const totalUsers = numberValue(summary?.total_users);
-  const activeUsers = numberValue(summary?.active_users);
-  const newSignups = numberValue(summary?.new_signups);
-  const payingUsers = numberValue(summary?.paying_users);
-  const adEarners = numberValue(summary?.ad_earners);
-
-  return {
-    metrics: [
-      { label: "New signups", value: compactNumber(newSignups), note: "Past 7 days" },
-      { label: "Active users", value: compactNumber(activeUsers), note: `${compactNumber(totalUsers)} total accounts` },
-      { label: "Coin unlockers", value: compactNumber(payingUsers), note: "Users who unlocked with coins" },
-      { label: "Ad earners", value: compactNumber(adEarners), note: "Rewarded video users" },
-    ],
-    rows: rows.map((row) => {
-      const coinBalance = numberValue(row.coin_balance);
-      const isActive = Boolean(row.is_active);
-      const unlockCount = numberValue(row.unlock_count);
-      const adUnlockCount = numberValue(row.ad_unlock_count);
-      const statusLabel = !isActive ? "Inactive" : coinBalance < 10 ? "Low balance" : "Active";
-      const statusClass = !isActive ? "blocked" : coinBalance < 10 ? "review" : "live";
-      const unlockNote = unlockCount > 0
-        ? `${compactNumber(unlockCount)} unlock${unlockCount === 1 ? "" : "s"}`
-        : "No unlocks";
-
-      return {
-        name: row.name || row.user_id,
-        email: row.email,
-        coinBalance,
-        lastWatched: row.last_watched_title ?? "No watch history",
-        statusLabel,
-        statusClass,
-        unlockNote: adUnlockCount > 0 ? `${unlockNote} / ${compactNumber(adUnlockCount)} ad` : unlockNote,
-      };
-    }),
-  };
 }
 
 export async function listSeries(includeDrafts = true, userId?: string): Promise<SeriesRow[]> {
@@ -983,7 +851,7 @@ export async function unlockEpisode(
     await connection.beginTransaction();
 
     const [episodeRows] = await connection.execute<UnlockEpisodeRow[]>(
-      `SELECT e.episode_id, e.coin_cost, e.episode_number, e.title, s.title AS series_title
+      `SELECT e.episode_id, e.is_free, e.coin_cost, e.episode_number, e.title, s.title AS series_title
          FROM episodes e
          INNER JOIN series s ON s.id = e.series_id
         WHERE e.episode_id = ? OR e.id = ?
@@ -1015,7 +883,8 @@ export async function unlockEpisode(
     );
     const alreadyUnlocked = existingRows.length > 0;
     const coinCost = Number(episode.coin_cost ?? 0);
-    const coinsDeducted = method === "coins" && !alreadyUnlocked ? coinCost : 0;
+    const unlockMethod = episode.is_free ? "free" : method;
+    const coinsDeducted = unlockMethod === "coins" && !alreadyUnlocked ? coinCost : 0;
     const currentBalance = Number(user.coin_balance ?? 0);
 
     if (coinsDeducted > currentBalance) {
@@ -1043,7 +912,7 @@ export async function unlockEpisode(
       `INSERT INTO episode_unlocks (user_id, episode_id, method)
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE method = method`,
-      [userId, episode.episode_id, method],
+      [userId, episode.episode_id, unlockMethod],
     );
 
     await connection.commit();

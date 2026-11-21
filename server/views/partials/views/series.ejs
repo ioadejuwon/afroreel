@@ -2,12 +2,13 @@
   const draftCount = series.filter(item => item.status === "draft").length;
   const counts = { all: series.length, draft: draftCount, live: series.length - draftCount };
   const episodeTitles = new Map();
+  let visibleCount = 0;
   for (const episode of episodes) {
     if (!episodeTitles.has(episode.series_id)) episodeTitles.set(episode.series_id, []);
     episodeTitles.get(episode.series_id).push(episode.title);
   }
 %>
-<section class="view<%= initialView === 'series' ? ' active' : '' %>" id="series" aria-labelledby="library-title">
+<section class="view<%= initialView === 'series' ? ' active' : '' %>" id="series" data-filter-status="<%= seriesFilter %>" aria-labelledby="library-title">
   <div class="library-heading">
     <div>
       <h1 id="library-title">Series library</h1>
@@ -23,26 +24,29 @@
     <div><dt>Published</dt><dd data-count="live"><%= counts.live %></dd></div>
   </dl>
 
-  <div class="library-filters" role="group" aria-label="Filter series by status">
+  <nav class="library-filters" aria-label="Filter series by status">
     <% for (const [value, label] of [["all", "All"], ["draft", "Drafts"], ["live", "Published"]]) { %>
-      <button type="button" data-filter="<%= value %>" aria-pressed="<%= value === 'all' %>"><%= label %> · <span data-count="<%= value %>"><%= counts[value] %></span></button>
+      <a href="<%= pageHref({status: value === 'all' ? '' : value}) %>" data-filter="<%= value %>" <%- seriesFilter === value ? 'aria-current="page"' : '' %>><%= label %> · <span data-count="<%= value %>"><%= counts[value] %></span></a>
     <% } %>
-  </div>
+  </nav>
 
   <div class="poster-grid">
     <% for (const item of series) { %>
       <% const cover = posterUrl(item, "adminpreview"); const published = item.status === "live"; const statusText = published ? "Published" : "Draft"; %>
       <% const detailUrl = adminPath + "/series/" + item.series_id; const actionUrl = adminPath + "/series/" + item.id; %>
-      <article class="series-card" data-series-status="<%= item.status %>" data-search-text="<%= [item.title, ...(episodeTitles.get(item.id) || [])].join(' ').toLowerCase() %>">
-        <div class="series-cover">
+      <% const searchText = [item.title, ...(episodeTitles.get(item.id) || [])].join(" ").toLowerCase();
+         const visible = (seriesFilter === "all" || seriesFilter === item.status) && searchText.includes(catalogSearch.trim().toLowerCase());
+         if (visible) visibleCount++; %>
+      <article class="series-card" data-series-status="<%= item.status %>" data-search-text="<%= searchText %>" <%= visible ? "" : "hidden" %>>
+        <a class="series-cover" href="<%= detailUrl %>" aria-label="Open <%= item.title %>">
           <span>No cover yet</span>
           <% if (cover) { %><img src="<%= cover %>" alt="" loading="lazy" /><% } %>
           <span class="cover-badge" data-status-label><%= statusText %></span>
-        </div>
+        </a>
         <div class="series-card-body">
           <div class="card-heading">
             <div>
-              <h2><%= item.title %></h2>
+              <h2><a href="<%= detailUrl %>"><%= item.title %></a></h2>
               <p><%= item.episode_count %> episode<%= Number(item.episode_count) === 1 ? '' : 's' %> · <span data-status-label><%= statusText %></span></p>
             </div>
             <details class="card-menu" name="series-actions">
@@ -70,7 +74,7 @@
       </article>
     <% } %>
   </div>
-  <p class="empty-card" data-library-empty <%= series.length ? 'hidden' : '' %>>No series yet.</p>
+  <p class="empty-card" data-library-empty <%= visibleCount ? 'hidden' : '' %>><%= series.length ? 'No series match this filter or search.' : 'No series yet.' %></p>
   <p class="sr-only" role="status" data-library-feedback></p>
   <dialog class="delete-dialog" aria-labelledby="delete-heading" aria-describedby="delete-impact">
     <form method="post">

@@ -1,0 +1,37 @@
+<% const u = report.user; const name = u.name || u.user_id; %>
+<section class="view active admin-report" id="user-profile" aria-labelledby="profile-title">
+  <header class="library-heading"><div><h1 id="profile-title"><%= name %></h1><p><%= u.email %><%= u.username ? " · @" + u.username : "" %></p></div>
+    <a class="ghost-button episode-link" href="<%= adminPath %>/users">All users</a>
+  </header>
+  <dl class="library-metrics dashboard-metrics profile-metrics">
+    <div><dt>Account access</dt><dd><%= u.is_active ? "Active" : "Suspended" %></dd></div>
+    <div><dt>Coin balance</dt><dd><%= u.coin_balance %></dd></div>
+    <div><dt>Joined</dt><dd class="date-value"><%= formatTime(u.joined) %></dd></div>
+    <div><dt>Last login</dt><dd class="date-value"><%= formatTime(u.last_login) %></dd></div>
+  </dl>
+  <section class="dashboard-panel report-panel" aria-labelledby="activity-title">
+    <header><h2 id="activity-title">Account activity</h2><span><%= report.total %> records</span></header>
+    <nav class="report-tabs" aria-label="User activity">
+      <% for (const [tab,label] of [["watch","Watch history"],["unlocks","Episode unlocks"],["wallet","Wallet activity"]]) { %><a href="<%= pageHref({tab,page:""}) %>" <%- report.tab === tab ? 'aria-current="page"' : '' %>><%= label %></a><% } %>
+    </nav>
+    <% if (report.tab === "watch") { %>
+      <% for (const row of report.items) { %><div class="activity-row">
+        <div><a class="record-link" href="<%= episodeHref(row) %>"><%= row.series_title %> · Ep <%= row.episode_number %>: <%= row.episode_title %></a><small><%= formatTime(row.recorded) %></small></div>
+        <span><%= Math.floor(row.progress_seconds / 60) %>m <%= row.progress_seconds % 60 %>s saved</span>
+      </div><% } %>
+      <% if (!report.total) { %><p class="dashboard-empty">No saved watch history.</p><% } %>
+    <% } else { %><%- include("transaction-list", { kind: report.tab, showUser: false }) %><% } %>
+    <%- include("../layout/pagination") %>
+  </section>
+  <section class="dashboard-panel report-panel" aria-labelledby="access-title">
+    <header><h2 id="access-title">Manage access</h2></header>
+    <% if (formError) { %><p class="form-error" role="alert"><%= formError %></p><% } %>
+    <% if (saved) { %><p class="save-feedback" role="status">Account access updated.</p><% } %>
+    <form class="report-filters access-form" method="post" action="<%= adminPath %>/users/<%= encodeURIComponent(u.user_id) %>/access">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>"/><input type="hidden" name="status" value="<%= u.is_active ? 'suspended' : 'active' %>"/>
+      <% if (u.is_active) { %><label>Type <strong><%= name %></strong> to confirm suspension<input name="confirmation" required autocomplete="off" /></label>
+        <button class="ghost-button danger-button">Suspend account</button>
+      <% } else { %><button class="primary-button">Reactivate account</button><% } %>
+    </form>
+  </section>
+</section>

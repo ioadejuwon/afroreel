@@ -4,7 +4,8 @@
   </button>
   <form class="search" role="search" action="<%= adminPath %>/series" method="get">
     <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-    <input name="q" type="search" aria-label="Search series and episodes" placeholder="Search series and episodes" autocomplete="off" />
+    <% if (initialView === "series" && seriesFilter !== "all") { %><input type="hidden" name="status" value="<%= seriesFilter %>"/><% } %>
+    <input name="q" value="<%= catalogSearch %>" type="search" aria-label="Search series and episodes" placeholder="Search series and episodes" autocomplete="off" />
   </form>
   <div class="top-actions">
     <details class="notifications" data-notifications-url="<%= adminPath %>/api/upload-notifications">

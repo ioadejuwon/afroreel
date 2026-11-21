@@ -1,92 +1,7 @@
-const navItems = Array.from(document.querySelectorAll(".nav-item"));
-const views = Array.from(document.querySelectorAll(".view"));
-const viewTitle = document.querySelector("#view-title");
 const sidebar = document.querySelector("#admin-sidebar");
 const sidebarOverlay = document.querySelector("[data-sidebar-overlay]");
 const sidebarToggles = Array.from(document.querySelectorAll("[data-sidebar-toggle]"));
 const basePath = window.AFROREEL_BASE_PATH || "";
-const serverInitialView = window.AFROREEL_INITIAL_VIEW || "";
-const adminBasePath = `${basePath}/admin`;
-
-const titles = {
-  dashboard: "Dashboard",
-  series: "Series",
-  "series-new": "Create Series",
-  "series-detail": "Series",
-  "series-edit": "Edit details",
-  "series-preview": "Catalog preview",
-  episodes: "Episodes",
-  users: "Users",
-  monetization: "Monetization",
-  analytics: "Analytics",
-  settings: "Settings",
-};
-
-function viewPath(view) {
-  if (view === "series-detail") {
-    return window.location.pathname;
-  }
-
-  if (view === "series-new") {
-    return `${adminBasePath}/series/new`;
-  }
-
-  return `${adminBasePath}/${view}`;
-}
-
-function viewFromPath() {
-  const prefix = `${adminBasePath}/`;
-  const path = window.location.pathname;
-  if (!path.startsWith(prefix)) {
-    return "";
-  }
-
-  const parts = path.slice(prefix.length).split("/");
-  if (parts[0] === "series-new" || (parts[0] === "series" && parts[1] === "new")) {
-    return "series-new";
-  }
-
-  if (parts[0] === "series" && parts[1]) {
-    if (parts[2] === "edit" || parts[2] === "preview") return `series-${parts[2]}`;
-    return "series-detail";
-  }
-
-  return parts[0] || "";
-}
-
-function setView(nextView, options = {}) {
-  if (!titles[nextView]) {
-    nextView = "dashboard";
-  }
-
-  const navView = nextView.startsWith("series-") ? "series" : nextView;
-
-  navItems.forEach((item) => {
-    item.classList.toggle("active", item.dataset.view === navView);
-    if (item.dataset.view === navView) item.setAttribute("aria-current", "page");
-    else item.removeAttribute("aria-current");
-  });
-
-  views.forEach((view) => {
-    view.classList.toggle("active", view.id === nextView);
-  });
-
-  if (viewTitle) {
-    viewTitle.textContent = titles[nextView] || "Dashboard";
-    viewTitle.hidden = navView === "series" || nextView === "dashboard";
-  }
-
-  if (options.updateUrl !== false) {
-    const nextUrl = viewPath(nextView);
-    const method = options.replaceUrl ? "replaceState" : "pushState";
-    history[method]({ view: nextView }, "", nextUrl);
-  }
-
-  if (options.focusTarget) {
-    focusTarget(options.focusTarget);
-  }
-  if (nextView === "series") refreshLibrary();
-}
 
 function setSidebarOpen(isOpen) {
   sidebar?.classList.toggle("open", isOpen);
@@ -96,35 +11,6 @@ function setSidebarOpen(isOpen) {
     toggle.setAttribute("aria-expanded", String(isOpen));
   });
 }
-
-navItems.forEach((item) => {
-  item.addEventListener("click", (event) => {
-    if (item.dataset.view === "dashboard" || serverInitialView === "dashboard") return;
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    setView(item.dataset.view);
-    if (window.matchMedia("(max-width: 1080px)").matches) {
-      setSidebarOpen(false);
-      sidebarToggles[0]?.focus();
-    }
-  });
-});
-
-document.querySelectorAll("[data-view-target]").forEach((button) => {
-  button.addEventListener("click", () => {
-    setView(button.dataset.viewTarget, { focusTarget: button.dataset.focusTarget });
-  });
-});
-
-document.querySelectorAll("[data-focus-target]").forEach((button) => {
-  if (button.dataset.viewTarget) {
-    return;
-  }
-
-  button.addEventListener("click", () => {
-    focusTarget(button.dataset.focusTarget);
-  });
-});
 
 sidebarToggles.forEach((toggle) => {
   toggle.addEventListener("click", () => {
@@ -153,9 +39,8 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || 
 
 const library = document.querySelector("#series");
 const libraryCards = Array.from(document.querySelectorAll("[data-series-status]"));
-const searchInput = document.querySelector(".search input");
-let libraryFilter = "all";
-if (searchInput) searchInput.value = new URLSearchParams(window.location.search).get("q") || "";
+const searchInput = document.querySelector('.search input[type="search"]');
+const libraryFilter = library?.dataset.filterStatus || "all";
 
 function refreshLibrary() {
   if (!library) return;
@@ -169,23 +54,27 @@ function refreshLibrary() {
     if (!card.hidden) visible++;
   }
   library.querySelectorAll("[data-count]").forEach(label => { label.textContent = counts[label.dataset.count]; });
-  library.querySelectorAll("[data-filter]").forEach(button => {
-    button.setAttribute("aria-pressed", String(button.dataset.filter === libraryFilter));
+  library.querySelectorAll("[data-filter]").forEach(link => {
+    const url = new URL(link.href);
+    if (query) url.searchParams.set("q", searchInput.value.trim());
+    else url.searchParams.delete("q");
+    link.href = url.href;
   });
   const empty = library.querySelector("[data-library-empty]");
   empty.hidden = visible > 0;
   empty.textContent = counts.all ? "No series match this filter or search." : "No series yet.";
 }
 
-library?.querySelectorAll("[data-filter]").forEach(button => {
-  button.addEventListener("click", () => {
-    libraryFilter = button.dataset.filter;
+if (library) {
+  refreshLibrary();
+  searchInput?.addEventListener("input", () => {
+    const url = new URL(window.location.href);
+    if (searchInput.value.trim()) url.searchParams.set("q", searchInput.value.trim());
+    else url.searchParams.delete("q");
+    history.replaceState(null, "", url);
     refreshLibrary();
   });
-});
-searchInput?.addEventListener("input", () => {
-  if (library?.classList.contains("active")) refreshLibrary();
-});
+}
 
 document.querySelectorAll(".series-cover img").forEach(img => {
   const showFallback = () => { img.hidden = true; };
@@ -422,6 +311,18 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
   const status = form.querySelector("[data-create-episode-status]");
   const button = form.querySelector('button[type="submit"]');
   let draftEpisode;
+  const number = form.elements.episodeNumber;
+  const access = form.elements.access;
+  function updateAccess() {
+    const hasNumber = number.valueAsNumber > 0;
+    const freeByDefault = hasNumber && number.valueAsNumber <= Number(access.dataset.freeOpening);
+    access.options[0].textContent = "Use series default" + (hasNumber ? (freeByDefault ? " · Free" : " · Locked") : "");
+    form.elements.coinCost.disabled = access.value === "free" || (access.value === "default" && freeByDefault);
+  }
+  number.addEventListener("input", updateAccess);
+  access.addEventListener("change", updateAccess);
+  updateAccess();
+
 
   input?.addEventListener("change", () => {
     const file = input.files?.[0];
@@ -464,7 +365,7 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
       );
       setStatus(status, video.label);
       await pollStreamStatus(draftEpisode.episodeId, video);
-      window.location.assign(draftEpisode.redirectTo || viewPath("episodes"));
+      window.location.assign(draftEpisode.redirectTo || appUrl("/admin/episodes"));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Episode creation failed.";
       setStatus(status, draftEpisode ? `Episode saved. ${message}` : message);
@@ -536,7 +437,7 @@ document.querySelectorAll("[data-status-form]").forEach((form) => {
           if (other.action === form.action) updateStatusForm(other, status, entityType);
         });
         refreshLibrary();
-        if (form.closest("[hidden]")) library?.querySelector('[aria-pressed="true"]')?.focus();
+        if (form.closest("[hidden]")) library?.querySelector('[data-filter][aria-current="page"]')?.focus();
         setStatus(library?.querySelector("[data-library-feedback]"), status === "live" ? "Series published." : "Series moved to draft.");
       } else {
         updateStatusForm(form, status, entityType);
@@ -793,15 +694,6 @@ function focusTarget(targetId) {
   firstField?.focus({ preventScroll: true });
 }
 
-window.addEventListener("popstate", () => {
-  setView(viewFromPath() || "dashboard", { updateUrl: false });
-});
-
-const initialView = viewFromPath() || window.location.hash.replace("#", "") || serverInitialView;
-if (initialView) {
-  setView(initialView, { updateUrl: false });
-}
-
 function focusEpisodeAnchor() {
   const id = window.location.hash.slice(1);
   const target = id && document.getElementById(id);
@@ -816,7 +708,7 @@ function focusEpisodeAnchor() {
 }
 window.addEventListener("hashchange", focusEpisodeAnchor);
 window.addEventListener("pageshow", event => {
-  if (event.persisted && serverInitialView === "dashboard") window.location.reload();
+  if (event.persisted) window.location.reload();
   else if (!event.persisted && window.location.hash) focusEpisodeAnchor();
 });
 

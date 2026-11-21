@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AfroReel Admin</title>
+    <title><%= ({"user-profile":"User profile","record-detail":"Transaction details","series-new":"Create series","series-edit":"Edit series","series-detail":"Manage episodes","series-preview":"Catalog preview"})[initialView] || (initialView.charAt(0).toUpperCase()+initialView.slice(1)) %> · AfroReel Admin</title>
     <%- include("partials/layout/app-icons") %>
     <meta name="csrf-token" content="<%= csrfToken %>" />
     <link rel="stylesheet" href="<%= basePath %>/admin/styles.css" />
@@ -17,24 +17,16 @@
       <main class="workspace">
         <%- include("partials/layout/topbar", { admin, csrfToken }) %>
 
-        <h1 id="view-title" <%= (initialView === "dashboard" || initialView.startsWith("series")) ? "hidden" : "" %>><%= initialView.charAt(0).toUpperCase() + initialView.slice(1) %></h1>
-        <% if (initialView === "dashboard") { %><%- include("partials/views/dashboard") %><% } %>
-        <%- include("partials/views/series") %>
-        <%- include("partials/views/series-form", { editing: false, item: null }) %>
-        <% if (initialView === "series-edit") { %><%- include("partials/views/series-form", { editing: true, item: selectedSeries }) %><% } %>
-        <% if (initialView === "series-preview") { %><%- include("partials/views/series-preview") %><% } %>
-        <%- include("partials/views/series-detail") %>
-        <%- include("partials/views/episodes") %>
-        <%- include("partials/views/users") %>
-        <%- include("partials/views/monetization") %>
-        <%- include("partials/views/analytics") %>
-        <%- include("partials/views/settings") %>
+        <% if (initialView === "series-new" || initialView === "series-edit") { %>
+          <%- include("partials/views/series-form", { editing: initialView === "series-edit", item: selectedSeries }) %>
+        <% } else { %>
+          <%- include("partials/views/" + initialView) %>
+        <% } %>
       </main>
     </div>
 
     <script>
       window.AFROREEL_BASE_PATH = <%- JSON.stringify(basePath) %>;
-      window.AFROREEL_INITIAL_VIEW = <%- JSON.stringify(initialView || "") %>;
       window.AFROREEL_POLL_STREAM = <%= pollStreamLocally %>;
     </script>
     <script src="<%= basePath %>/admin/app.js?v=<%= adminScriptVersion %>"></script>

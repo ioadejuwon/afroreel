@@ -1,22 +1,27 @@
-<section class="view" id="analytics" aria-label="Analytics">
-  <div class="content-grid">
-    <article class="panel span-2">
-      <div class="panel-header"><h2>Retention Curve</h2><span>D1 to D30</span></div>
-      <div class="retention">
-        <span style="width: 100%">D1 · 48%</span>
-        <span style="width: 74%">D7 · 29%</span>
-        <span style="width: 52%">D14 · 18%</span>
-        <span style="width: 36%">D30 · 11%</span>
-      </div>
-    </article>
-    <article class="panel">
-      <div class="panel-header"><h2>Unlock Funnel</h2><span>Episode 6</span></div>
-      <ol class="funnel">
-        <li><strong>84%</strong><span>Reached lock</span></li>
-        <li><strong>41%</strong><span>Chose ad</span></li>
-        <li><strong>19%</strong><span>Bought coins</span></li>
-        <li><strong>53%</strong><span>Continued watching</span></li>
-      </ol>
-    </article>
+<% const daily = report.daily; const peak = Math.max(1, ...daily.map(day => day.viewers || 0)); %>
+<section class="view active admin-report" id="analytics" aria-labelledby="analytics-title">
+  <header class="library-heading"><div><h1 id="analytics-title">Analytics</h1><p>Viewing activity, new accounts, and episode unlocks.</p></div>
+    <nav class="report-tabs" aria-label="Reporting period"><% for (const n of [7,14,30]) { %><a href="<%= pageHref({days:n}) %>" <%- report.days === n ? 'aria-current="page"' : '' %>><%= n %> days</a><% } %></nav>
+  </header>
+  <dl class="library-metrics dashboard-metrics analytics-metrics">
+    <% for (const [label,value] of [["Unique viewers",report.unique],["New signups",report.signups],["Episode unlocks",report.unlocks]]) { %><div><dt><%= label %></dt><dd><%= value %></dd></div><% } %>
+  </dl>
+  <div class="report-columns">
+    <section class="dashboard-panel report-panel"><header><h2>Daily unique viewers</h2><span>UTC</span></header>
+      <figure class="viewer-chart"><ol aria-label="Daily viewers"><% for (const day of daily) { %>
+        <li class="<%= day.viewers === null ? 'untracked' : '' %>" title="<%= day.day %> · <%= day.viewers ?? 'Unavailable' %>"><span class="sr-only"><%= day.day %>: <%= day.viewers ?? "Unavailable" %></span><span aria-hidden="true" style="height:<%= (day.viewers || 0)/peak*100 %>%"></span></li>
+      <% } %></ol><figcaption class="chart-range"><span><%= daily[0].day %></span><span><%= daily[daily.length-1].day %></span></figcaption></figure>
+      <% if (daily.some(day => day.viewers === null)) { %><p class="report-note"><%= report.trackingStart ? "Viewer counts before " + report.trackingStart + " are unavailable." : "Daily viewer tracking has no recorded start date." %></p><% } %>
+    </section>
+    <section class="dashboard-panel report-panel"><header><h2>Unlocks by method</h2></header><dl class="record-details">
+      <% for (const key of ["coins","ad","free"]) { %><div><dt><a href="<%= adminPath %>/monetization?tab=unlocks&amp;type=<%= key %>&amp;from=<%= daily[0].day %>&amp;to=<%= daily[daily.length-1].day %>"><%= recordLabel(key) %></a></dt><dd><%= daily.reduce((total,day) => total + day[key],0) %></dd></div><% } %>
+    </dl></section>
   </div>
+  <section class="dashboard-panel report-panel"><header><h2>Most unlocked episodes</h2><span>Top 10</span></header>
+    <% for (const ep of report.episodes) { %><div class="activity-row"><a href="<%= episodeHref(ep) %>"><%= ep.series_title %> · Ep <%= ep.episode_number %>: <%= ep.episode_title %></a><strong><%= ep.n %></strong></div><% } %>
+    <% if (!report.episodes.length) { %><p class="dashboard-empty">No episode unlocks in this period.</p><% } %>
+  </section>
+  <details class="dashboard-panel report-panel daily-details"><summary>Daily activity</summary><div class="table-scroll"><table class="records"><thead><tr><th>Date (UTC)</th><th>Viewers</th><th>Signups</th><th>Coin unlocks</th><th>Ad unlocks</th><th>Free unlocks</th></tr></thead>
+    <tbody><% for (const d of daily.slice().reverse()) { %><tr><td><%= d.day %></td><td><%= d.viewers ?? "Unavailable" %></td><td><%= d.signups %></td><td><%= d.coins %></td><td><%= d.ad %></td><td><%= d.free %></td></tr><% } %></tbody></table></div>
+  </details>
 </section>
