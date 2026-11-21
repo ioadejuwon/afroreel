@@ -203,6 +203,15 @@ describe("Cloudflare cleanup and inventory", () => {
     expect(request.mock.calls.every(([, init]) => !init.method || init.method === "GET")).toBe(true);
   });
 
+  it("reads the counted Stream response returned by the production API", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ success: true, result: {
+      videos: [{ uid, created: "2026-11-19T22:03:24.365926Z" }], total: 1, range: 1,
+    } })));
+    const scan = listCloudflareAssets("Stream");
+    expect((await scan.next()).value).toMatchObject({ id: uid });
+    expect((await scan.next()).done).toBe(true);
+  });
+
   it("marks truncated Stream inventory incomplete", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ success: true, total: 2, result: [
       { uid, created: "2026-01-01T00:00:00Z" },

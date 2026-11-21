@@ -358,23 +358,26 @@ export async function* listCloudflareAssets(service: "Stream" | "Images"): Async
   }
 
   const query = new URLSearchParams({ limit: "1000", asc: "false", include_counts: "true" });
+  const videos = z.array(z.object({ uid: uidSchema, created: z.string().min(1) }));
+  const total = z.number().int().nonnegative();
+  const inventory = z.union([
+    z.object({ success: z.literal(true), result: z.object({ videos, total }) }).transform(page => page.result),
+    z.object({ success: z.literal(true), result: videos, total }).transform(page => ({ videos: page.result, total: page.total })),
+  ]);
   const seen = new Set<string>();
   let expected: number | undefined;
   for (;;) {
     const response = await cloudflareRequest(service, "/stream?" + query, "list videos");
-    const page = z.object({
-      success: z.literal(true), total: z.number().int().nonnegative(),
-      result: z.array(z.object({ uid: uidSchema, created: z.string().min(1) })),
-    }).parse(await response.json());
+    const page = inventory.parse(await response.json());
     expected ??= page.total;
-    for (const video of page.result) {
+    for (const video of page.videos) {
       if (seen.has(video.uid)) continue;
       seen.add(video.uid);
       yield { id: video.uid, ownership: "uncertain" };
     }
     if (seen.size === expected) return;
-    const end = page.result.at(-1)?.created;
-    if (page.result.length < 1000 || !end || end === query.get("end")) {
+    const end = page.videos.at(-1)?.created;
+    if (page.videos.length < 1000 || !end || end === query.get("end")) {
       throw new Error(`Stream inventory returned ${seen.size} of ${expected} videos.`);
     }
     query.set("end", end);
