@@ -1126,7 +1126,7 @@ th {
 }
 .library-filters button { min-height: 36px; padding: 0 clamp(8px, 1.2vw, 16px); border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 620; cursor: pointer; }
 .library-filters button[aria-pressed="true"] { background: #26271f; color: var(--text); }
-.poster-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(16px, 1.65vw, 24px); }
+.poster-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(16px, 1.65vw, 24px); }
 .series-card { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 18px; background: #171715; }
 .series-cover { position: relative; display: grid; place-items: center; aspect-ratio: 8 / 5; overflow: hidden; border-radius: 17px 17px 0 0; background: #20211c; color: var(--muted); font-size: 14px; }
 .series-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
