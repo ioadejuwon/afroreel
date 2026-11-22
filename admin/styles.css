@@ -1035,7 +1035,7 @@ th {
 .library-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .library-heading h1 { margin-bottom: 10px; font-size: clamp(28px, 2.55vw, 38px); font-weight: 720; letter-spacing: -.035em; }
 .library-heading p { max-width: 52ch; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
-.library-heading .primary-button, .card-publish {
+.library-heading .primary-button, .card-manage {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1046,7 +1046,7 @@ th {
   text-decoration: none;
 }
 .library-heading .primary-button { flex-shrink: 0; padding: 0 20px; }
-.library-heading .primary-button:hover, .card-publish:hover { background: #d3fa68; }
+.library-heading .primary-button:hover, .card-manage:hover { background: #d3fa68; }
 .library-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 30px 0 34px; }
 .library-metrics div { padding: 16px 20px; border: 1px solid var(--line); border-radius: 14px; background: #141510; }
 .library-metrics dt { color: var(--muted); font-size: 13px; }
@@ -1074,11 +1074,11 @@ th {
 [data-series-status="live"] .cover-badge::before { background: var(--gold); }
 .series-card-body { flex: 1; display: flex; flex-direction: column; gap: 15px; padding: clamp(14px, 1.25vw, 20px); }
 .card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
-.card-heading h2 { font-size: clamp(17px, 1.45vw, 22px); line-height: 1.22; font-weight: 700; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.card-heading > div { min-width: 0; }
+.card-heading h2 { overflow: hidden; font-size: clamp(16px, 1.2vw, 20px); line-height: 1.22; font-weight: 700; letter-spacing: -.025em; text-overflow: ellipsis; white-space: nowrap; }
+.card-heading h2 a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-heading p, .preview-episodes p { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
-.series-card-body > form { margin-top: auto; }
-.card-publish { width: 100%; }
-.card-publish:disabled { opacity: .7; cursor: wait; }
+.card-manage { width: 100%; margin-top: auto; }
 .card-menu { flex-shrink: 0; position: relative; }
 .card-menu summary { display: grid; place-items: center; width: 38px; height: 38px; margin-top: -5px; border: 1px solid transparent; border-radius: 10px; list-style: none; cursor: pointer; }
 .card-menu summary::-webkit-details-marker { display: none; }
@@ -1102,8 +1102,10 @@ th {
   cursor: pointer;
 }
 .card-menu-items :is(a, button):hover { background: #303129; }
+.card-menu-items .card-status-form button:disabled { opacity: .7; cursor: wait; }
 .card-menu-items .delete-series { color: #ff9382; }
-.card-menu-items form { margin: 0 0 4px; padding-bottom: 4px; border-bottom: 1px solid #383930; }
+.card-menu-items form { margin: 0; }
+.card-menu-items .duplicate-series-form { margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid #383930; }
 .shell :is(a, button, summary):focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .delete-dialog { width: min(440px, calc(100% - 32px)); padding: 24px; border: 1px solid #414239; border-radius: 16px; background: #1b1c17; color: var(--text); box-shadow: var(--shadow); }
 .delete-dialog::backdrop { background: #000a; }

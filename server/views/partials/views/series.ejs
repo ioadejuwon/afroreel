@@ -46,16 +46,22 @@
         <div class="series-card-body">
           <div class="card-heading">
             <div>
-              <h2><a href="<%= detailUrl %>"><%= item.title %></a></h2>
+              <h2><a href="<%= detailUrl %>" title="<%= item.title %>"><%= item.title %></a></h2>
               <p><%= item.episode_count %> episode<%= Number(item.episode_count) === 1 ? '' : 's' %> · <span data-status-label><%= statusText %></span></p>
             </div>
             <details class="card-menu" name="series-actions">
               <summary aria-label="Actions for <%= item.title %>"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></summary>
               <div class="card-menu-items">
-                <a href="<%= detailUrl %>"><svg class="icon" aria-hidden="true"><use href="#i-episodes"/></svg>Manage episodes</a>
+                <form class="card-status-form" method="post" action="<%= actionUrl %>/status" data-status-form data-entity-type="series">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <input type="hidden" name="status" value="<%= published ? 'draft' : 'live' %>" />
+                  <button type="submit" data-status-button>
+                    <svg class="icon" aria-hidden="true"><use href="#i-<%= published ? 'draft' : 'publish' %>"/></svg><span><%= published ? 'Move to draft' : 'Publish' %></span>
+                  </button>
+                </form>
                 <a href="<%= detailUrl %>/edit"><svg class="icon" aria-hidden="true"><use href="#i-edit"/></svg>Edit details</a>
                 <a href="<%= detailUrl %>/preview"><svg class="icon" aria-hidden="true"><use href="#i-preview"/></svg>Preview</a>
-                <form method="post" action="<%= actionUrl %>/duplicate">
+                <form class="duplicate-series-form" method="post" action="<%= actionUrl %>/duplicate">
                   <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                   <button type="submit"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>Duplicate</button>
                 </form>
@@ -63,13 +69,9 @@
               </div>
             </details>
           </div>
-          <form method="post" action="<%= actionUrl %>/status" data-status-form data-entity-type="series">
-            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-            <input type="hidden" name="status" value="<%= published ? 'draft' : 'live' %>" />
-            <button class="primary-button card-publish" type="submit" data-status-button>
-              <svg class="icon" aria-hidden="true"><use href="#i-<%= published ? 'draft' : 'publish' %>"/></svg><span><%= published ? 'Move to draft' : 'Publish' %></span>
-            </button>
-          </form>
+          <a class="primary-button card-manage" href="<%= detailUrl %>">
+            <svg class="icon" aria-hidden="true"><use href="#i-episodes"/></svg><span>Manage episodes</span>
+          </a>
         </div>
       </article>
     <% } %>
