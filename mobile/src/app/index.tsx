@@ -16,6 +16,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   ViewProps,
 } from 'react-native';
@@ -820,32 +821,7 @@ function DiscoverTab({
         <Text style={styles.resultCount}>{filteredDramas.length} titles</Text>
       </View>
 
-      <View style={styles.posterGrid}>
-        {filteredDramas.map((drama) => (
-          <Pressable key={`discover-${drama.id}`} style={styles.gridPoster} onPress={() => onOpenSeries(drama)}>
-            <PosterVisual drama={drama} />
-            {drama.isFree ? (
-              <View style={styles.freeBadge}>
-                <Text style={styles.freeBadgeText}>FREE</Text>
-              </View>
-            ) : null}
-            {drama.isLocked ? (
-              <View style={styles.lockBadge}>
-                <Text style={styles.lockBadgeText}>LOCKED</Text>
-              </View>
-            ) : null}
-            <LinearGradient colors={['transparent', Colors.overlayHeavy]} style={styles.posterFade} />
-            <View style={styles.posterCopy}>
-              <Text style={styles.posterTitle} numberOfLines={2}>
-                {drama.title}
-              </Text>
-              <Text style={styles.posterMeta} numberOfLines={1}>
-                {drama.genre}
-              </Text>
-            </View>
-          </Pressable>
-        ))}
-      </View>
+      <SeriesGrid series={filteredDramas} context="discover" onOpenSeries={onOpenSeries} />
     </ScrollView>
   );
 }
@@ -877,12 +853,17 @@ function CategorySeriesScreen({
     <View style={styles.categoryScreen}>
       <SafeAreaView>
         <View style={styles.categoryHeader}>
-          <Pressable style={styles.iconButton} onPress={onBack} accessibilityLabel="Back">
-            <Ionicons name="chevron-back" size={22} color={Colors.text} />
+          <Pressable
+            style={styles.categoryBackButton}
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="chevron-back" size={26} color={Colors.text} />
           </Pressable>
           <View style={styles.categoryHeaderCopy}>
-            <Text style={styles.eyebrow}>{series.length} title{series.length === 1 ? '' : 's'}</Text>
-            <Text style={styles.headerTitle}>{title}</Text>
+            <Text style={styles.categoryTitle}>{title}</Text>
+            <Text style={styles.categoryCount}>{series.length} title{series.length === 1 ? '' : 's'}</Text>
           </View>
         </View>
       </SafeAreaView>
@@ -895,32 +876,7 @@ function CategorySeriesScreen({
         }
       >
         {series.length > 0 ? (
-          <View style={styles.posterGrid}>
-            {series.map((drama) => (
-              <Pressable key={`category-${category}-${drama.id}`} style={styles.gridPoster} onPress={() => onOpenSeries(drama)}>
-                <PosterVisual drama={drama} />
-                {drama.isFree ? (
-                  <View style={styles.freeBadge}>
-                    <Text style={styles.freeBadgeText}>FREE</Text>
-                  </View>
-                ) : null}
-                {drama.isLocked ? (
-                  <View style={styles.lockBadge}>
-                    <Text style={styles.lockBadgeText}>LOCKED</Text>
-                  </View>
-                ) : null}
-                <LinearGradient colors={['transparent', Colors.overlayHeavy]} style={styles.posterFade} />
-                <View style={styles.posterCopy}>
-                  <Text style={styles.posterTitle} numberOfLines={2}>
-                    {drama.title}
-                  </Text>
-                  <Text style={styles.posterMeta} numberOfLines={1}>
-                    {drama.episodeCount} eps
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
+          <SeriesGrid series={series} context={category} onOpenSeries={onOpenSeries} />
         ) : (
           <View style={styles.discoverySpotlight}>
             <LinearGradient colors={['#2b1d38', '#0b0b12']} style={StyleSheet.absoluteFill} />
@@ -933,6 +889,99 @@ function CategorySeriesScreen({
         )}
       </ScrollView>
     </View>
+  );
+}
+
+function SeriesGrid({
+  series,
+  context,
+  onOpenSeries,
+}: {
+  series: Drama[];
+  context: SeriesCategory | 'discover';
+  onOpenSeries: (series: Drama) => void;
+}) {
+  const { width } = useWindowDimensions();
+  const gridWidth = Math.min(width, 720);
+  const cardWidth = (gridWidth - Spacing[5] * 2 - Spacing[4]) / 2;
+
+  return (
+    <View style={[styles.seriesGrid, { width: gridWidth }]}>
+      {series.map((drama, index) => (
+        <SeriesGridCard
+          key={`${context}-${drama.id}`}
+          drama={drama}
+          context={context}
+          rank={context === 'trending' ? index + 1 : undefined}
+          width={cardWidth}
+          onPress={() => onOpenSeries(drama)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function SeriesGridCard({
+  drama,
+  context,
+  rank,
+  width,
+  onPress,
+}: {
+  drama: Drama;
+  context: SeriesCategory | 'discover';
+  rank?: number;
+  width: number;
+  onPress: () => void;
+}) {
+  const episodeLabel = `${drama.episodeCount} ${drama.episodeCount === 1 ? 'episode' : 'episodes'}`;
+  const metadata = context === 'discover' ? drama.genre : episodeLabel;
+  const accessLabel = drama.isFree ? 'Free' : drama.isLocked ? 'Locked' : '';
+  const showProgress = context === 'continue' && typeof drama.progress === 'number';
+  const progressPercent = Math.min(100, Math.max(0, drama.progress ?? 0));
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.seriesGridCard,
+        { width },
+        pressed && styles.seriesGridCardPressed,
+      ]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={[drama.title, metadata, accessLabel].filter(Boolean).join(', ')}
+    >
+      <View style={styles.seriesGridArtwork}>
+        <PosterVisual drama={drama} />
+        {typeof rank === 'number' ? (
+          <View style={styles.seriesGridRankBadge}>
+            <Text style={styles.seriesGridRankText}>{rank}</Text>
+          </View>
+        ) : null}
+        {accessLabel ? (
+          <View style={[
+            styles.seriesGridAccessBadge,
+            drama.isFree ? styles.seriesGridFreeBadge : styles.seriesGridLockedBadge,
+          ]}>
+            <Text style={[
+              styles.seriesGridAccessText,
+              drama.isFree ? styles.seriesGridFreeText : styles.seriesGridLockedText,
+            ]}>
+              {accessLabel.toUpperCase()}
+            </Text>
+          </View>
+        ) : null}
+        {showProgress ? (
+          <View style={styles.seriesGridProgressTrack}>
+            <View style={[styles.seriesGridProgressFill, { width: `${progressPercent}%` }]} />
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.seriesGridCopy}>
+        <Text style={styles.seriesGridTitle} numberOfLines={2}>{drama.title}</Text>
+        <Text style={styles.seriesGridMeta} numberOfLines={1}>{metadata}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -4324,17 +4373,140 @@ const styles = StyleSheet.create({
   categoryHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: Spacing[3],
+    gap: Spacing[4],
+    paddingBottom: Spacing[4],
     paddingHorizontal: Spacing[5],
-    paddingTop: Spacing[2],
+    paddingTop: Spacing[3],
   },
   categoryHeaderCopy: {
     flex: 1,
   },
+  categoryBackButton: {
+    alignItems: 'center',
+    backgroundColor: Colors.backgroundSurface,
+    borderColor: Colors.border,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    height: 52,
+    justifyContent: 'center',
+    width: 52,
+  },
+  categoryTitle: {
+    color: Colors.text,
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    lineHeight: 38,
+  },
+  categoryCount: {
+    color: Colors.textMuted,
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: Spacing[1],
+  },
   categoryContent: {
     paddingBottom: SafeArea.bottom + Spacing[6],
+    paddingTop: Spacing[3],
+  },
+  seriesGrid: {
+    alignSelf: 'center',
+    columnGap: Spacing[4],
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: Spacing[5],
-    paddingTop: Spacing[5],
+    rowGap: Spacing[6],
+  },
+  seriesGridCard: {
+    flexShrink: 0,
+  },
+  seriesGridCardPressed: {
+    opacity: 0.78,
+  },
+  seriesGridArtwork: {
+    aspectRatio: 3 / 4,
+    backgroundColor: Colors.backgroundCard,
+    borderColor: Colors.border,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+    width: '100%',
+  },
+  seriesGridCopy: {
+    paddingHorizontal: Spacing[1],
+    paddingTop: Spacing[3],
+  },
+  seriesGridTitle: {
+    color: Colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    lineHeight: 22,
+  },
+  seriesGridMeta: {
+    color: Colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: Spacing[1],
+  },
+  seriesGridRankBadge: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(10,10,15,0.94)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: 'center',
+    left: Spacing[3],
+    position: 'absolute',
+    top: Spacing[3],
+    width: 42,
+  },
+  seriesGridRankText: {
+    color: Colors.primary,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  seriesGridAccessBadge: {
+    borderRadius: Radius.full,
+    minHeight: 32,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing[3],
+    position: 'absolute',
+    right: Spacing[3],
+    top: Spacing[3],
+  },
+  seriesGridFreeBadge: {
+    backgroundColor: Colors.success,
+  },
+  seriesGridLockedBadge: {
+    backgroundColor: 'rgba(10,10,15,0.88)',
+    borderColor: Colors.primaryBorder,
+    borderWidth: 1,
+  },
+  seriesGridAccessText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  seriesGridFreeText: {
+    color: Colors.textOnPrimary,
+  },
+  seriesGridLockedText: {
+    color: Colors.primary,
+  },
+  seriesGridProgressTrack: {
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    bottom: 0,
+    height: 5,
+    left: 0,
+    overflow: 'hidden',
+    position: 'absolute',
+    right: 0,
+  },
+  seriesGridProgressFill: {
+    backgroundColor: Colors.primary,
+    height: '100%',
   },
   continueIntro: {
     color: Colors.textMuted,
@@ -5382,22 +5554,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 19,
     maxWidth: 300,
-  },
-  posterGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing[2],
-    paddingHorizontal: Spacing[5],
-  },
-  gridPoster: {
-    backgroundColor: Colors.backgroundCard,
-    borderColor: Colors.border,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    height: 168,
-    overflow: 'hidden',
-    position: 'relative',
-    width: (Screen.width - Spacing[5] * 2 - Spacing[2] * 2) / 3,
   },
   placeholderScreen: {
     alignItems: 'center',
