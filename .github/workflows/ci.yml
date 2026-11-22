@@ -17,6 +17,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Verify cPanel release archive and required database migrations
+        run: bash scripts/package-cpanel.sh HEAD "$(mktemp -d)"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:

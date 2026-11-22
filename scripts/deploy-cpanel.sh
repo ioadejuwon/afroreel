@@ -13,7 +13,7 @@ flock -n 9 || { echo "Another AfroReel deployment is running." >&2; exit 1; }
 revision=$(git rev-parse HEAD)
 release=$(mktemp -d "$HOME/afroreel-releases/${revision:0:8}.XXXXXX")
 echo "Preparing release $revision in $release"
-git archive "$revision" admin server database package.json package-lock.json | tar -x -C "$release"
+bash scripts/package-cpanel.sh "$revision" "$release"
 (
   cd "$release"
   NODE_ENV=development npm ci --prefix "$release" --include=dev --no-audit --no-fund
