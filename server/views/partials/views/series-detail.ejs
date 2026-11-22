@@ -1,3 +1,4 @@
+<% if (!access.manageContent) { %><%- include("series-preview") %><% } else { %>
 <section class="view active studio-page">
 <% if (!selectedSeries) { %><p class="empty-card">Series not found.</p><% } else { %>
 <%- include("series-hero",{item:selectedSeries, editing:false}) %>
@@ -14,3 +15,4 @@
 <form method="post" action="<%= path %>/status" data-status-form data-entity-type="episode"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="returnTo" value="series-detail"><input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>"><input type="hidden" name="status" value="<%= episode.status === 'draft' ? 'live' : 'draft' %>"><button data-status-button><%= episode.status === 'draft' ? 'Publish' : 'Move to draft' %></button></form>
 <form method="post" action="<%= path %>/delete" data-delete-episode-form><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="delete-series">Delete episode</button></form></div></details>
 <small class="row-feedback" role="status" data-upload-status><%= video.error || '' %></small></article><% } %></section><% } %></section>
+<% } %>

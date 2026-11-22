@@ -2,8 +2,9 @@ import { ComponentProps, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { useVideoPlayer, VideoView, type VideoPlayerStatus } from 'expo-video';
 import {
+  ActivityIndicator,
   Alert,
   ImageBackground,
   ImageSourcePropType,
@@ -32,6 +33,14 @@ import {
   setApiAuthToken,
   setApiRefreshToken,
 } from '@/services/api';
+import {
+  COIN_PRODUCTS,
+  connectCoinStore,
+  initializeAdvertisingConsent,
+  requestCoinPurchase,
+  type StoreCoinProduct,
+  unlockEpisodeWithRewardedAd,
+} from '@/services/monetization';
 import type {
   ApiEpisode,
   ApiPlaybackSession,
@@ -50,6 +59,7 @@ type PlayerEpisode = {
   id?: string;
   databaseId?: number;
   seriesTitle?: string;
+  thumbnailImage?: ImageSourcePropType;
   number: number;
   title: string;
   hook: string;
@@ -129,12 +139,6 @@ const onboardingSlides: {
     image: require('../../assets/images/onboarding/Pic 3.png'),
   },
 ];
-const coinPackages = [
-  { id: 'starter', name: 'Starter', coins: 100, price: '$1.99' },
-  { id: 'plus', name: 'Plus', coins: 300, price: '$4.99', bonus: '+30 bonus' },
-  { id: 'premium', name: 'Premium', coins: 1000, price: '$12.99', bonus: '+150 bonus' },
-];
-
 const categoryTitles: Record<SeriesCategory, string> = {
   continue: 'Continue Watching',
   trending: 'Trending Now',
@@ -181,10 +185,13 @@ function mapApiSeriesToDrama(item: ApiSeries, index: number): Drama {
 }
 
 function mapApiEpisode(item: ApiEpisode): PlayerEpisode {
+  const thumbnailUri = resolveMediaUrl(item.thumbnailUrl ?? null);
+
   return {
     id: item.id,
     databaseId: item.databaseId,
     seriesTitle: item.seriesTitle,
+    thumbnailImage: thumbnailUri ? { uri: thumbnailUri } : undefined,
     number: item.episodeNumber,
     title: item.title,
     hook: item.hook ?? '',
@@ -267,6 +274,14 @@ export default function HomeScreen() {
   const [isRefreshingCatalog, setIsRefreshingCatalog] = useState(false);
   const [catalogError, setCatalogError] = useState('');
   const [walletTopUpNotification, setWalletTopUpNotification] = useState<WalletTopUpNotification | null>(null);
+  const completeWalletTopUp = useCallback((user: AuthUser, coinsAdded: number) => {
+    setCurrentUser(user);
+    setWalletTopUpNotification({ coinsAdded, newBalance: user.coinBalance });
+  }, []);
+
+  useEffect(() => {
+    void initializeAdvertisingConsent();
+  }, []);
 
   const loadSeriesCatalog = useCallback(async () => {
     const payload = await fetchJson<{ series: ApiSeries[] }>('/api/series');
@@ -528,10 +543,7 @@ export default function HomeScreen() {
     return (
       <PaymentScreen
         onBack={() => setActiveView('tabs')}
-        onComplete={(user, coinsAdded) => {
-          setCurrentUser(user);
-          setWalletTopUpNotification({ coinsAdded, newBalance: user.coinBalance });
-        }}
+        onComplete={completeWalletTopUp}
       />
     );
   }
@@ -1315,9 +1327,7 @@ function WalletTab({ user, onOpenPayment }: { user: AuthUser | null; onOpenPayme
       </View>
 
       <View style={styles.earnList}>
-        <EarnRow mark="A" label="Watch a short ad" description="Earn coins in under a minute" reward="+5" />
-        <EarnRow mark="D" label="Daily check-in" description="Come back tomorrow for another reward" reward="+2" />
-        <EarnRow mark="R" label="Invite a friend" description="Referral rewards are coming soon" reward="Soon" disabled />
+        <EarnRow mark="A" label="Watch a short ad" description="Open a locked episode to unlock it with an ad" reward="3/day" disabled />
       </View>
 
       <View style={styles.walletSectionHeader}>
@@ -1375,33 +1385,64 @@ function formatWalletTransactionDate(value: string): string {
 }
 
 function PaymentScreen({ onBack, onComplete }: { onBack: () => void; onComplete: (user: AuthUser, coinsAdded: number) => void }) {
-  const [selectedPackage, setSelectedPackage] = useState('plus');
-  const [selectedMethod, setSelectedMethod] = useState('card');
+  const [products, setProducts] = useState<StoreCoinProduct[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string>(COIN_PRODUCTS[1].productId);
   const [isComplete, setIsComplete] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const selectedCoinPackage = coinPackages.find((coinPackage) => coinPackage.id === selectedPackage) ?? coinPackages[1];
+  const [completedCoins, setCompletedCoins] = useState(0);
+  const selectedCoinPackage = products.find(product => product.productId === selectedProductId) ?? products[0];
+
+  useEffect(() => {
+    let disconnect: (() => void) | undefined;
+    let mounted = true;
+    void connectCoinStore({
+      onProducts: (nextProducts) => {
+        if (!mounted) return;
+        setProducts(nextProducts);
+        setSelectedProductId(current => nextProducts.some(product => product.productId === current)
+          ? current : nextProducts[0]?.productId ?? current);
+        if (nextProducts.length === 0) setPaymentError('Coin packs are not available from the store right now.');
+      },
+      onPurchase: (result) => {
+        if (!mounted) return;
+        const definition = COIN_PRODUCTS.find(product => product.productId === result.productId);
+        const coinsAdded = result.coinsAdded || definition?.coins || 0;
+        setIsSubmitting(false);
+        setCompletedCoins(coinsAdded);
+        onComplete(result.user, coinsAdded);
+        setIsComplete(true);
+      },
+      onError: (message) => {
+        if (!mounted) return;
+        setIsSubmitting(false);
+        setPaymentError(message === 'Purchase cancelled.' ? '' : message);
+      },
+    }).then(cleanup => {
+      if (mounted) disconnect = cleanup;
+      else cleanup();
+    }).catch((error) => {
+      if (mounted) setPaymentError(error instanceof Error ? error.message : 'Could not connect to the store.');
+    });
+    return () => {
+      mounted = false;
+      disconnect?.();
+    };
+  }, [onComplete]);
+
   const completePayment = useCallback(async () => {
-    if (isSubmitting) {
-      return;
-    }
+    if (isSubmitting || !selectedCoinPackage) return;
 
     setIsSubmitting(true);
     setPaymentError('');
 
     try {
-      const payload = await fetchJson<{ user: AuthUser }>('/api/wallet/topup', {
-        method: 'POST',
-        body: JSON.stringify({ coins: selectedCoinPackage.coins }),
-      });
-      onComplete(payload.user, selectedCoinPackage.coins);
-      setIsComplete(true);
+      await requestCoinPurchase(selectedCoinPackage.productId);
     } catch (error) {
-      setPaymentError(error instanceof Error ? error.message : 'Could not update your wallet. Please try again.');
-    } finally {
       setIsSubmitting(false);
+      setPaymentError(error instanceof Error ? error.message : 'The store could not start this purchase.');
     }
-  }, [isSubmitting, onComplete, selectedCoinPackage.coins]);
+  }, [isSubmitting, selectedCoinPackage]);
 
   if (isComplete) {
     return (
@@ -1414,7 +1455,7 @@ function PaymentScreen({ onBack, onComplete }: { onBack: () => void; onComplete:
           <Text style={styles.paymentSuccessEyebrow}>PAYMENT COMPLETE</Text>
           <Text style={styles.paymentSuccessTitle}>Your coins are ready.</Text>
           <Text style={styles.paymentSuccessBody}>
-            {selectedCoinPackage.coins.toLocaleString()} coins have been added to your AfroReel wallet.
+            {completedCoins.toLocaleString()} coins have been added to your AfroReel wallet.
           </Text>
           <Pressable style={styles.paymentSuccessButton} onPress={onBack}>
             <Text style={styles.primaryButtonText}>Return to wallet</Text>
@@ -1441,70 +1482,40 @@ function PaymentScreen({ onBack, onComplete }: { onBack: () => void; onComplete:
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.paymentContent}>
         <Text style={styles.paymentSectionTitle}>Choose your pack</Text>
         <View style={styles.paymentPackageList}>
-          {coinPackages.map((coinPackage) => {
-            const isSelected = selectedPackage === coinPackage.id;
+          {products.map((coinPackage) => {
+            const isSelected = selectedProductId === coinPackage.productId;
 
             return (
               <Pressable
-                key={coinPackage.id}
+                key={coinPackage.productId}
                 style={[styles.paymentPackage, isSelected && styles.paymentPackageSelected]}
-                onPress={() => setSelectedPackage(coinPackage.id)}
+                onPress={() => setSelectedProductId(coinPackage.productId)}
               >
                 <View>
                   <View style={styles.packageTitleRow}>
-                    <Text style={styles.packageName}>{coinPackage.name}</Text>
-                    {coinPackage.bonus ? <Text style={styles.packageBonus}>{coinPackage.bonus}</Text> : null}
+                    <Text style={styles.packageName}>{coinPackage.label}</Text>
                   </View>
                   <Text style={styles.packageCoins}>{coinPackage.coins.toLocaleString()} coins</Text>
                 </View>
-                <Text style={styles.packagePrice}>{coinPackage.price}</Text>
+                <Text style={styles.packagePrice}>{coinPackage.displayPrice}</Text>
               </Pressable>
             );
           })}
         </View>
 
-        <Text style={styles.paymentSectionTitle}>Payment method</Text>
-        <View style={styles.paymentMethodList}>
-          <PaymentMethod
-            id="card"
-            mark="C"
-            label="Credit or debit card"
-            description="Visa, Mastercard, or Amex"
-            selectedMethod={selectedMethod}
-            onSelect={setSelectedMethod}
-          />
-          <PaymentMethod
-            id="flutterwave"
-            mark="F"
-            label="Flutterwave"
-            description="Pay securely with local options"
-            selectedMethod={selectedMethod}
-            onSelect={setSelectedMethod}
-          />
-          <PaymentMethod
-            id="apple"
-            mark="A"
-            label="Apple Pay"
-            description="Coming soon"
-            selectedMethod={selectedMethod}
-            onSelect={setSelectedMethod}
-            disabled
-          />
-        </View>
-
-        <View style={styles.paymentSummary}>
+        {selectedCoinPackage ? <View style={styles.paymentSummary}>
           <View style={styles.paymentSummaryRow}>
             <Text style={styles.paymentSummaryLabel}>Selected pack</Text>
             <Text style={styles.paymentSummaryValue}>{selectedCoinPackage.coins.toLocaleString()} coins</Text>
           </View>
           <View style={styles.paymentSummaryRow}>
             <Text style={styles.paymentSummaryLabel}>Total</Text>
-            <Text style={styles.paymentSummaryTotal}>{selectedCoinPackage.price}</Text>
+            <Text style={styles.paymentSummaryTotal}>{selectedCoinPackage.displayPrice}</Text>
           </View>
-        </View>
+        </View> : null}
 
         <Text style={styles.paymentSecurity}>
-          Secure checkout. Your payment details are encrypted and never stored by AfroReel.
+          Your App Store or Google Play account securely handles payment. AfroReel never receives your card details.
         </Text>
 
         {paymentError ? <Text style={styles.authError}>{paymentError}</Text> : null}
@@ -1512,51 +1523,12 @@ function PaymentScreen({ onBack, onComplete }: { onBack: () => void; onComplete:
         <Pressable
           style={[styles.paymentButton, isSubmitting && styles.authContinueButtonDisabled]}
           onPress={completePayment}
-          disabled={isSubmitting}
+          disabled={isSubmitting || !selectedCoinPackage}
         >
-          <Text style={styles.primaryButtonText}>{isSubmitting ? 'Please wait...' : `Pay ${selectedCoinPackage.price}`}</Text>
+          <Text style={styles.primaryButtonText}>{isSubmitting ? 'Waiting for store...' : selectedCoinPackage ? `Buy for ${selectedCoinPackage.displayPrice}` : 'Store unavailable'}</Text>
         </Pressable>
       </ScrollView>
     </View>
-  );
-}
-
-function PaymentMethod({
-  id,
-  mark,
-  label,
-  description,
-  selectedMethod,
-  onSelect,
-  disabled = false,
-}: {
-  id: string;
-  mark: string;
-  label: string;
-  description: string;
-  selectedMethod: string;
-  onSelect: (id: string) => void;
-  disabled?: boolean;
-}) {
-  const isSelected = id === selectedMethod;
-
-  return (
-    <Pressable
-      style={[styles.paymentMethod, isSelected && styles.paymentMethodSelected, disabled && styles.paymentMethodDisabled]}
-      onPress={() => onSelect(id)}
-      disabled={disabled}
-    >
-      <View style={styles.paymentMethodIcon}>
-        <Ionicons name={getIconForMark(mark)} size={20} color={Colors.primary} />
-      </View>
-      <View style={styles.paymentMethodCopy}>
-        <Text style={styles.paymentMethodLabel}>{label}</Text>
-        <Text style={styles.paymentMethodDescription}>{description}</Text>
-      </View>
-      <View style={[styles.paymentRadio, isSelected && styles.paymentRadioSelected]}>
-        {isSelected ? <View style={styles.paymentRadioDot} /> : null}
-      </View>
-    </Pressable>
   );
 }
 
@@ -2310,6 +2282,7 @@ function PlayerScreen({
 }) {
   const [remoteEpisodes, setRemoteEpisodes] = useState<PlayerEpisode[]>([]);
   const [remoteSeriesTitle, setRemoteSeriesTitle] = useState(series.title);
+  const [isLoadingEpisodes, setIsLoadingEpisodes] = useState(true);
   const [activeEpisodeIndex, setActiveEpisodeIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [isUnlockSheetOpen, setIsUnlockSheetOpen] = useState(false);
@@ -2317,6 +2290,7 @@ function PlayerScreen({
   const [playback, setPlayback] = useState<ApiPlaybackSession | null>(null);
   const [playbackAttempt, setPlaybackAttempt] = useState(0);
   const [playbackError, setPlaybackError] = useState('');
+  const [playerStatus, setPlayerStatus] = useState<VideoPlayerStatus>('idle');
   const [currentTimeSeconds, setCurrentTimeSeconds] = useState(0);
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [engagement, setEngagement] = useState<EpisodeEngagement>({
@@ -2331,6 +2305,8 @@ function PlayerScreen({
   const [commentDraft, setCommentDraft] = useState('');
   const [commentError, setCommentError] = useState('');
   const [isPostingComment, setIsPostingComment] = useState(false);
+  const [isUnlocking, setIsUnlocking] = useState(false);
+  const [adUnlocksRemaining, setAdUnlocksRemaining] = useState<number | null>(null);
   const lastSavedProgressRef = useRef<Record<string, number>>({});
   const episode = remoteEpisodes[Math.min(activeEpisodeIndex, remoteEpisodes.length - 1)];
   const isLocked = Boolean(episode?.isLocked && !unlockedEpisodes.includes(episode.number));
@@ -2345,6 +2321,17 @@ function PlayerScreen({
     player.timeUpdateEventInterval = 0.5;
   });
   const progressPercent = durationSeconds > 0 ? Math.min((currentTimeSeconds / durationSeconds) * 100, 100) : 0;
+  const playerArtwork = episode?.thumbnailImage ?? series.posterCardImage ?? series.posterImage;
+  const isPlaybackPreparing = !isLocked && !playbackError && (!playbackUrl || playerStatus !== 'readyToPlay');
+  const showPlaybackOverlay = !isLocked && (isPlaybackPreparing || Boolean(playbackError));
+
+  useEffect(() => {
+    let mounted = true;
+    void fetchJson<{ adUnlocksRemaining: number }>('/api/monetization')
+      .then(result => { if (mounted) setAdUnlocksRemaining(result.adUnlocksRemaining); })
+      .catch(() => undefined);
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     if (!playbackUrl || isLocked || isPaused) {
@@ -2358,6 +2345,7 @@ function PlayerScreen({
   useEffect(() => {
     setCurrentTimeSeconds(0);
     setDurationSeconds(0);
+    setPlayerStatus(playbackUrl ? videoPlayer.status : 'idle');
 
     const timeSubscription = videoPlayer.addListener('timeUpdate', ({ currentTime }) => {
       setCurrentTimeSeconds(currentTime);
@@ -2370,8 +2358,12 @@ function PlayerScreen({
       }
     });
     const statusSubscription = videoPlayer.addListener('statusChange', ({ status }) => {
+      setPlayerStatus(status);
+
       if (playbackUrl && status === 'error') {
         setPlaybackError('Unable to play this episode. Try loading it again.');
+      } else if (status === 'readyToPlay') {
+        setPlaybackError('');
       }
     });
 
@@ -2386,6 +2378,8 @@ function PlayerScreen({
     let isMounted = true;
 
     async function loadRemoteEpisodes() {
+      setIsLoadingEpisodes(true);
+
       try {
         const seriesId = series.seriesId;
         const episodePayload = await fetchJson<{ episodes: ApiEpisode[] }>(`/api/series/${seriesId}/episodes`);
@@ -2400,6 +2394,10 @@ function PlayerScreen({
       } catch {
         if (isMounted) {
           setRemoteEpisodes([]);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingEpisodes(false);
         }
       }
     }
@@ -2417,6 +2415,7 @@ function PlayerScreen({
     async function loadPlayback() {
       setPlayback(null);
       setPlaybackError('');
+      setPlayerStatus('idle');
 
       if (!episode?.id || isLocked) {
         return;
@@ -2443,6 +2442,12 @@ function PlayerScreen({
       isMounted = false;
     };
   }, [episode?.id, isLocked, playbackAttempt]);
+
+  const retryPlayback = () => {
+    setPlaybackError('');
+    setPlayerStatus('idle');
+    setPlaybackAttempt((attempt) => attempt + 1);
+  };
 
   useEffect(() => {
     if (!episode?.id || !playbackUrl || isLocked || currentTimeSeconds < 5) {
@@ -2623,48 +2628,83 @@ function PlayerScreen({
   );
 
   const unlockCurrentEpisode = async (method: UnlockMethod) => {
-    if (!episode) {
-      return;
-    }
+    if (!episode || !episode.id || isUnlocking) return;
 
-    if (episode.id) {
-      try {
+    setIsUnlocking(true);
+    try {
+      if (method === 'ad') {
+        if (!user) throw new Error('Sign in to unlock this episode.');
+        const reward = await unlockEpisodeWithRewardedAd(user.id, episode.id);
+        setAdUnlocksRemaining(reward.remaining);
+      } else {
         const payload = await fetchJson<{ user?: AuthUser }>(`/api/episodes/${episode.id}/unlock`, {
           method: 'POST',
-          body: JSON.stringify({ method }),
+          body: JSON.stringify({ method: 'coins' }),
         });
-        if (payload.user) {
-          onUserChange(payload.user);
-        }
-      } catch {
-        return;
+        if (payload.user) onUserChange(payload.user);
       }
+      setUnlockedEpisodes((currentEpisodes) => [...currentEpisodes, episode.number]);
+      setIsUnlockSheetOpen(false);
+    } catch (error) {
+      Alert.alert('Could not unlock episode', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setIsUnlocking(false);
     }
-
-    setUnlockedEpisodes((currentEpisodes) => [...currentEpisodes, episode.number]);
-    setIsUnlockSheetOpen(false);
   };
 
   if (!episode) {
+    const initialArtwork = series.posterCardImage ?? series.posterImage;
+
     return (
       <View style={styles.playerScreen}>
         <LinearGradient colors={['#4b2949', '#12080f', '#030305']} style={StyleSheet.absoluteFill} />
+        <View style={styles.playerBackdrop}>
+          {initialArtwork ? (
+            <ImageBackground
+              source={initialArtwork}
+              style={StyleSheet.absoluteFill}
+              imageStyle={styles.playerLoadingArtwork}
+              resizeMode="cover"
+            />
+          ) : (
+            <>
+              <View style={styles.playerBackdropGlow} />
+              <View style={styles.playerPortrait}>
+                <Text style={styles.playerPortraitText}>L</Text>
+              </View>
+            </>
+          )}
+          {isLoadingEpisodes ? <View style={styles.playerLoadingBackdropScrim} /> : null}
+        </View>
+        <LinearGradient
+          colors={['rgba(0,0,0,0.46)', 'rgba(0,0,0,0.28)', 'rgba(0,0,0,0.9)']}
+          style={StyleSheet.absoluteFill}
+        />
         <SafeAreaView style={styles.playerSafeArea}>
           <View style={styles.playerTopBar}>
             <Pressable style={styles.playerRoundButton} onPress={onClose} accessibilityLabel="Close player">
               <Ionicons name="chevron-back" size={22} color={Colors.text} />
             </Pressable>
           </View>
-          <View style={styles.lockedEpisode}>
-            <View style={styles.lockedEpisodeIcon}>
-              <Ionicons name="play-circle" size={28} color={Colors.textOnPrimary} />
+          {isLoadingEpisodes ? (
+            <View style={styles.playerLoadingState} pointerEvents="none">
+              <View style={styles.playerLoadingMessage}>
+                <ActivityIndicator color={Colors.primary} size="small" />
+                <Text style={styles.playerLoadingTitle}>Loading episode…</Text>
+              </View>
             </View>
-            <Text style={styles.lockedEpisodeEyebrow}>LIVE DATA</Text>
-            <Text style={styles.lockedEpisodeTitle}>No episodes published yet.</Text>
-            <Text style={styles.lockedEpisodeBody}>
-              Add live episodes for {series.title} in the online admin to test playback here.
-            </Text>
-          </View>
+          ) : (
+            <View style={styles.lockedEpisode}>
+              <View style={styles.lockedEpisodeIcon}>
+                <Ionicons name="play-circle" size={28} color={Colors.textOnPrimary} />
+              </View>
+              <Text style={styles.lockedEpisodeEyebrow}>LIVE DATA</Text>
+              <Text style={styles.lockedEpisodeTitle}>No episodes published yet.</Text>
+              <Text style={styles.lockedEpisodeBody}>
+                Add live episodes for {series.title} in the online admin to test playback here.
+              </Text>
+            </View>
+          )}
         </SafeAreaView>
       </View>
     );
@@ -2674,12 +2714,26 @@ function PlayerScreen({
     <View style={styles.playerScreen} {...panResponder.panHandlers}>
       <LinearGradient colors={['#4b2949', '#12080f', '#030305']} style={StyleSheet.absoluteFill} />
       <View style={styles.playerBackdrop}>
-        {playbackUrl && !isLocked ? (
+        {isLocked && playerArtwork ? (
+          <ImageBackground
+            source={playerArtwork}
+            style={StyleSheet.absoluteFill}
+            imageStyle={styles.lockedEpisodeArtwork}
+            resizeMode="cover"
+          />
+        ) : playbackUrl && !isLocked ? (
           <VideoView
             player={videoPlayer}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             nativeControls={false}
+          />
+        ) : playerArtwork ? (
+          <ImageBackground
+            source={playerArtwork}
+            style={StyleSheet.absoluteFill}
+            imageStyle={styles.playerLoadingArtwork}
+            resizeMode="cover"
           />
         ) : (
           <>
@@ -2689,9 +2743,20 @@ function PlayerScreen({
             </View>
           </>
         )}
+        {showPlaybackOverlay && playbackUrl && playerArtwork ? (
+          <ImageBackground
+            source={playerArtwork}
+            style={StyleSheet.absoluteFill}
+            imageStyle={styles.playerLoadingArtwork}
+            resizeMode="cover"
+          />
+        ) : null}
+        {showPlaybackOverlay ? <View style={styles.playerLoadingBackdropScrim} /> : null}
       </View>
       <LinearGradient
-        colors={['rgba(0,0,0,0.22)', 'transparent', 'rgba(0,0,0,0.88)']}
+        colors={isLocked
+          ? ['rgba(0,0,0,0.54)', 'rgba(0,0,0,0.36)', 'rgba(0,0,0,0.9)']
+          : ['rgba(0,0,0,0.22)', 'transparent', 'rgba(0,0,0,0.88)']}
         style={StyleSheet.absoluteFill}
       />
 
@@ -2708,6 +2773,32 @@ function PlayerScreen({
             <Ionicons name="ellipsis-horizontal" size={22} color={Colors.text} />
           </Pressable>
         </View>
+
+        {showPlaybackOverlay ? (
+          <View style={styles.playerLoadingState} pointerEvents={playbackError ? 'auto' : 'none'}>
+            {playbackError ? (
+              <View style={styles.playerLoadingMessage}>
+                <Ionicons name="alert-circle" size={28} color={Colors.white} />
+                <Text style={styles.playerLoadingTitle}>This episode didn’t load.</Text>
+                <Text style={styles.playerLoadingBody}>{playbackError}</Text>
+                <Pressable
+                  style={styles.playerRetryButton}
+                  onPress={retryPlayback}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry loading episode"
+                >
+                  <Ionicons name="refresh" size={16} color={Colors.textOnPrimary} />
+                  <Text style={styles.playerRetryButtonText}>Try again</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.playerLoadingMessage}>
+                <ActivityIndicator color={Colors.primary} size="small" />
+                <Text style={styles.playerLoadingTitle}>Loading episode…</Text>
+              </View>
+            )}
+          </View>
+        ) : null}
 
         {!isLocked ? (
           <Pressable style={styles.playerTapArea} onPress={() => setIsPaused((paused) => !paused)}>
@@ -2727,11 +2818,6 @@ function PlayerScreen({
                 Episode {episode.number} / {episode.title}
               </Text>
               <Text style={styles.playerHook}>{episode.hook}</Text>
-              {playbackError ? (
-                <Pressable onPress={() => setPlaybackAttempt((attempt) => attempt + 1)} accessibilityRole="button">
-                  <Text style={styles.playerSwipeHint}>{playbackError} Tap to retry.</Text>
-                </Pressable>
-              ) : null}
               <Text style={styles.playerSwipeHint}>Swipe up for the next episode</Text>
             </View>
 
@@ -2778,9 +2864,6 @@ function PlayerScreen({
           </>
         ) : (
           <View style={styles.lockedEpisode}>
-            <View style={styles.lockedEpisodeIcon}>
-              <Text style={styles.lockedEpisodeIconText}>L</Text>
-            </View>
             <Text style={styles.lockedEpisodeEyebrow}>EPISODE {episode.number}</Text>
             <Text style={styles.lockedEpisodeTitle}>Unlock the next reveal.</Text>
             <Text style={styles.lockedEpisodeBody}>
@@ -2799,6 +2882,8 @@ function PlayerScreen({
           onClose={() => setIsUnlockSheetOpen(false)}
           onUnlock={unlockCurrentEpisode}
           coinCost={episode.coinCost ?? 5}
+          isUnlocking={isUnlocking}
+          adUnlocksRemaining={adUnlocksRemaining}
         />
       ) : null}
 
@@ -2934,11 +3019,15 @@ function UnlockSheet({
   coinCost,
   onClose,
   onUnlock,
+  isUnlocking,
+  adUnlocksRemaining,
 }: {
   episodeNumber: number;
   coinCost: number;
   onClose: () => void;
   onUnlock: (method: UnlockMethod) => void;
+  isUnlocking: boolean;
+  adUnlocksRemaining: number | null;
 }) {
   return (
     <View style={styles.unlockOverlay}>
@@ -2951,18 +3040,18 @@ function UnlockSheet({
           You are one unlock away from what happens next.
         </Text>
 
-        <Pressable style={styles.unlockOption} onPress={() => onUnlock('ad')}>
+        <Pressable style={styles.unlockOption} onPress={() => onUnlock('ad')} disabled={isUnlocking}>
           <View style={styles.unlockOptionIcon}>
             <Ionicons name="play-circle" size={20} color={Colors.primary} />
           </View>
           <View style={styles.unlockOptionCopy}>
             <Text style={styles.unlockOptionTitle}>Watch a short ad</Text>
-            <Text style={styles.unlockOptionBody}>Earn enough coins and keep watching</Text>
+            <Text style={styles.unlockOptionBody}>Unlock this episode · {adUnlocksRemaining ?? 3} remaining today</Text>
           </View>
-          <Text style={styles.unlockOptionReward}>+5</Text>
+          <Text style={styles.unlockOptionReward}>{isUnlocking ? 'WAIT' : 'FREE'}</Text>
         </Pressable>
 
-        <Pressable style={[styles.unlockOption, styles.unlockOptionFeatured]} onPress={() => onUnlock('coins')}>
+        <Pressable style={[styles.unlockOption, styles.unlockOptionFeatured]} onPress={() => onUnlock('coins')} disabled={isUnlocking}>
           <View style={styles.unlockOptionIcon}>
             <Ionicons name="wallet" size={20} color={Colors.primary} />
           </View>
@@ -4366,6 +4455,17 @@ const styles = StyleSheet.create({
     fontSize: 136,
     fontWeight: '700',
   },
+  playerLoadingArtwork: {
+    opacity: 0.96,
+  },
+  playerLoadingBackdropScrim: {
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
   playerSafeArea: {
     flex: 1,
   },
@@ -4390,6 +4490,56 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 12,
     fontWeight: '700',
+  },
+  playerLoadingState: {
+    alignItems: 'center',
+    bottom: 126,
+    justifyContent: 'center',
+    left: Spacing[5],
+    position: 'absolute',
+    right: Spacing[5],
+    top: 72,
+    zIndex: 3,
+  },
+  playerLoadingMessage: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    borderColor: 'rgba(255,255,255,0.14)',
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    gap: Spacing[3],
+    maxWidth: 300,
+    paddingHorizontal: Spacing[6],
+    paddingVertical: Spacing[5],
+    width: '100%',
+  },
+  playerLoadingTitle: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  playerLoadingBody: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  playerRetryButton: {
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.md,
+    flexDirection: 'row',
+    gap: Spacing[2],
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: Spacing[5],
+  },
+  playerRetryButtonText: {
+    color: Colors.textOnPrimary,
+    fontSize: 14,
+    fontWeight: '800',
   },
   coinChip: {
     alignItems: 'center',
@@ -4530,6 +4680,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: Radius.full,
     height: '100%',
+  },
+  lockedEpisodeArtwork: {
+    opacity: 0.88,
   },
   lockedEpisode: {
     alignItems: 'center',

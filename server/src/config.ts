@@ -36,6 +36,16 @@ function envInt(name: string, defaultValue: number): number {
   return parsed;
 }
 
+function decodedPem(name: string): string {
+  const value = process.env[name] ?? "";
+  if (!value) return "";
+  try {
+    return Buffer.from(value, "base64").toString("utf8");
+  } catch {
+    throw new Error(`Environment variable ${name} must be a base64-encoded PEM value`);
+  }
+}
+
 function normalizeBasePath(value: string): string {
   const trimmed = value.trim();
 
@@ -92,6 +102,24 @@ export const config = {
   resend: {
     apiKey: process.env.RESEND_API_KEY ?? "",
     from: process.env.EMAIL_FROM ?? "AfroReel <no-reply@rellowmedia.com>",
+  },
+  commerce: {
+    apple: {
+      bundleId: process.env.APPLE_BUNDLE_ID ?? "com.afroreel.app",
+      issuerId: process.env.APPLE_ISSUER_ID ?? "",
+      keyId: process.env.APPLE_KEY_ID ?? "",
+      privateKey: decodedPem("APPLE_IAP_PRIVATE_KEY_PEM_BASE64"),
+    },
+    google: {
+      packageName: process.env.GOOGLE_PLAY_PACKAGE_NAME ?? "com.afroreel.app",
+      serviceAccountEmail: process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL ?? "",
+      privateKey: decodedPem("GOOGLE_PLAY_PRIVATE_KEY_PEM_BASE64"),
+      webhookToken: process.env.GOOGLE_PLAY_WEBHOOK_TOKEN ?? "",
+    },
+    admob: {
+      iosRewardedAdUnitId: process.env.ADMOB_IOS_REWARDED_AD_UNIT_ID ?? "",
+      androidRewardedAdUnitId: process.env.ADMOB_ANDROID_REWARDED_AD_UNIT_ID ?? "",
+    },
   },
   sentryDsn: process.env.SENTRY_DSN ?? "",
 };

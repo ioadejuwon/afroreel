@@ -14,7 +14,7 @@
       <% if (daily.some(day => day.viewers === null)) { %><p class="report-note"><%= report.trackingStart ? "Viewer counts before " + report.trackingStart + " are unavailable." : "Daily viewer tracking has no recorded start date." %></p><% } %>
     </section>
     <section class="dashboard-panel report-panel"><header><h2>Unlocks by method</h2></header><dl class="record-details">
-      <% for (const key of ["coins","ad","free"]) { %><div><dt><a href="<%= adminPath %>/monetization?tab=unlocks&amp;type=<%= key %>&amp;from=<%= daily[0].day %>&amp;to=<%= daily[daily.length-1].day %>"><%= recordLabel(key) %></a></dt><dd><%= daily.reduce((total,day) => total + day[key],0) %></dd></div><% } %>
+      <% for (const key of ["coins","ad","free"]) { %><div><dt><% if (access.manageStudio) { %><a href="<%= adminPath %>/monetization?tab=unlocks&amp;type=<%= key %>&amp;from=<%= daily[0].day %>&amp;to=<%= daily[daily.length-1].day %>"><%= recordLabel(key) %></a><% } else { %><%= recordLabel(key) %><% } %></dt><dd><%= daily.reduce((total,day) => total + day[key],0) %></dd></div><% } %>
     </dl></section>
   </div>
   <section class="dashboard-panel report-panel"><header><h2>Most unlocked episodes</h2><span>Top 10</span></header>

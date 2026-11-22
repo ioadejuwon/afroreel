@@ -3,60 +3,39 @@
  */
 
 // ── Coin Packages (matches PRD pricing) ──────────────────
-export type CoinPackageId = 'starter' | 'plus' | 'premium';
-
 export interface CoinPackage {
-  id: CoinPackageId;
-  label: string;        // e.g. 'Starter'
-  coins: number;        // e.g. 100
-  price: number;        // in USD cents, e.g. 99 = $0.99
-  priceDisplay: string; // e.g. '$0.99'
-  isFeatured: boolean;
-  badge?: string;       // e.g. 'BEST VALUE'
+  productId: string;
+  label: string;
+  coins: number;
 }
 
 export const COIN_PACKAGES: CoinPackage[] = [
   {
-    id: 'starter',
+    productId: 'com.afroreel.coins.100',
     label: 'Starter',
     coins: 100,
-    price: 99,
-    priceDisplay: '$0.99',
-    isFeatured: false,
   },
   {
-    id: 'plus',
+    productId: 'com.afroreel.coins.330',
     label: 'Plus',
-    coins: 300,
-    price: 199,
-    priceDisplay: '$1.99',
-    isFeatured: true,
-    badge: 'POPULAR',
+    coins: 330,
   },
   {
-    id: 'premium',
+    productId: 'com.afroreel.coins.1150',
     label: 'Premium',
-    coins: 1000,
-    price: 499,
-    priceDisplay: '$4.99',
-    isFeatured: false,
-    badge: 'BEST VALUE',
+    coins: 1150,
   },
 ];
 
-// ── Ad Reward ─────────────────────────────────────────────
-export const AD_REWARD_COINS = 5;     // 1 ad = 5 coins (per PRD)
+// Prices are always supplied by App Store or Google Play product metadata.
+export const DAILY_AD_UNLOCK_LIMIT = 3;
 export const EPISODE_UNLOCK_COST = 5; // 1 episode = 5 coins (per PRD)
 export const FREE_EPISODES_COUNT = 5; // First 5 episodes free (per PRD)
 
 // ── Transaction Types ─────────────────────────────────────
 export type CoinTransactionType =
   | 'purchase'      // Bought a coin pack
-  | 'ad_reward'     // Watched an ad
-  | 'episode_unlock'// Spent coins to unlock
-  | 'daily_checkin' // Daily bonus
-  | 'referral'      // Referred a friend (Phase 2)
-  | 'streak_bonus'; // Streak reward
+  | 'episode_unlock';// Spent coins to unlock
 
 export interface CoinTransaction {
   id: string;
@@ -71,19 +50,19 @@ export interface CoinTransaction {
 export interface CoinWallet {
   balance: number;
   transactions: CoinTransaction[];
-  streakDays: number;
-  lastCheckinDate?: string;
 }
 
 // ── Purchase Payload ──────────────────────────────────────
 export interface PurchaseCoinPayload {
-  packageId: CoinPackageId;
-  paymentMethod: 'card' | 'flutterwave' | 'apple_pay' | 'google_pay';
+  platform: 'ios' | 'android';
+  productId: string;
+  transactionId: string;
+  purchaseToken?: string;
 }
 
 export interface PurchaseCoinResponse {
   success: boolean;
   coinsAdded: number;
-  newBalance: number;
-  transactionId: string;
+  productId: string;
+  alreadyProcessed: boolean;
 }

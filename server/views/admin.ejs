@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title><%= ({"user-profile":"User profile","record-detail":"Transaction details","series-new":"Create series","series-episode-new":"Add episode","series-edit":"Series details","series-detail":"Manage episodes","series-preview":"Catalog preview"})[initialView] || (initialView.charAt(0).toUpperCase()+initialView.slice(1)) %> · AfroReel Admin</title>
+    <title><%= ({"team":"Admin team","team-invite":"Invite admin","user-profile":"User profile","record-detail":"Transaction details","series-new":"Create series","series-episode-new":"Add episode","series-edit":"Series details","series-detail":"Series episodes","series-preview":"Catalog preview"})[initialView] || (initialView.charAt(0).toUpperCase()+initialView.slice(1)) %> · AfroReel Admin</title>
     <%- include("partials/layout/app-icons") %>
     <meta name="csrf-token" content="<%= csrfToken %>" />
     <link rel="stylesheet" href="<%= basePath %>/admin/styles.css" />

@@ -33,11 +33,24 @@ import { allowLocalMedia, config } from "../config";
 import { analyticsReport, ledgerName, ledgers, listRecords, recordDetail, setAccountAccess, userDirectory, userProfile } from "../admin-reports";
 import { seriesEpisodeAccess, episodeDefaults, saveEpisodeDefaults } from "../admin-settings";
 import { coinProducts } from "../commerce";
+import { monetizationSettings, saveMonetizationSettings } from "../monetization";
 import { buildDashboardCatalog, buildUploadList, getDashboardAudience } from "../dashboard";
 import { posterUrl, videoUploadResponse } from "../media";
 import { saveLocalVideoStream, savePosterDataUrl } from "../uploads";
 
+import { teamRoutes } from "./team";
+import { canOpenView, permissions, studioHome } from "../studio-access";
+
 export const adminRouter = Router();
+adminRouter.use(teamRoutes(renderAdmin));
+
+function accessTo(view: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.admin) return requireAdmin(req,res,next);
+    if (!canOpenView(req.admin.role, view)) { res.status(403).send("Your role does not have access to this page."); return; }
+    next();
+  };
+}
 const adminViews = new Set(["dashboard", "series", "series-new", "series-detail", "episodes", "users", "monetization", "analytics", "settings"]);
 
 function adminPath(req: Request, suffix = ""): string {
@@ -64,10 +77,11 @@ async function renderAdmin(req: Request, res: Response, options: {
 } = {}): Promise<void> {
   const initialView = options.initialView ?? "dashboard";
   const needsSeries = initialView === "dashboard" || initialView === "episodes" || initialView.startsWith("series");
-  const [series, episodes, audience, defaults] = await Promise.all([
+  const [series, episodes, audience, defaults, monetization] = await Promise.all([
     needsSeries ? listSeries(true) : [], listEpisodes(true),
     initialView === "dashboard" ? getDashboardAudience() : null,
     ["episodes", "series-episode-new", "settings"].includes(initialView) ? episodeDefaults() : null,
+    initialView === "settings" ? monetizationSettings() : null,
   ]);
   const query = req.query;
   const stringParam = (key: string) => typeof query[key] === "string" ? query[key] : "";
@@ -99,16 +113,18 @@ async function renderAdmin(req: Request, res: Response, options: {
 
   res.set("Cache-Control", "private, no-store").status(options.status ?? (options.seriesDetailId && !selectedSeries ? 404 : 200)).render("admin", {
     admin: req.admin,
+    access: permissions(req.admin!.role),
     csrfToken: req.csrfToken(),
     series,
     episodes,
     catalog,
     audience,
     queueOnly: initialView === "episodes" && req.query.filter === "needs-video",
-    report, defaults, ledgers, coinProducts, seriesFilter,
+    report, defaults, monetization, ledgers, coinProducts, seriesFilter,
     recordLabel: (value: string) => ({
       top_up: "Top-up", spend: "Spend", reward: "Reward", coins: "Coins", ad: "Ad", free: "Free",
       verified: "Verified", revoked: "Revoked", refunded: "Refunded",
+      pending: "Pending", expired: "Expired", rejected: "Rejected",
     } as Record<string,string>)[value] ?? value,
     catalogSearch: initialView === "series" ? stringParam("q") : "",
     saved: query.saved === "1",
@@ -144,7 +160,7 @@ function adminViewPath(req: Request, view: string): string {
 
 adminRouter.get("/login", (req, res) => {
   if (req.admin) {
-    res.redirect(adminViewPath(req, "dashboard"));
+    res.redirect(adminViewPath(req, studioHome(req.admin.role)));
     return;
   }
 
@@ -169,7 +185,8 @@ adminRouter.post("/login", async (req: Request, res: Response, next: NextFunctio
       }
 
       req.session.adminId = admin.id;
-      res.redirect(adminViewPath(req, "dashboard"));
+      req.session.adminVersion = admin.session_version;
+      res.redirect(adminViewPath(req, studioHome(admin.role)));
     });
   } catch (error) {
     next(error);
@@ -190,13 +207,13 @@ adminRouter.post("/logout", requireAdmin, (req, res, next) => {
 
 adminRouter.get("/", requireAdmin, async (req, res, next) => {
   try {
-    res.redirect(adminViewPath(req, "dashboard"));
+    res.redirect(adminViewPath(req, studioHome(req.admin!.role)));
   } catch (error) {
     next(error);
   }
 });
 
-adminRouter.get("/series/new", requireAdmin, async (req, res, next) => {
+adminRouter.get("/series/new", accessTo("series-edit"), async (req, res, next) => {
   try {
     await renderAdmin(req, res, { initialView: "series-new" });
   } catch (error) {
@@ -204,7 +221,7 @@ adminRouter.get("/series/new", requireAdmin, async (req, res, next) => {
   }
 });
 
-adminRouter.get("/series/:seriesId", requireAdmin, async (req, res, next) => {
+adminRouter.get("/series/:seriesId", accessTo("series-detail"), async (req, res, next) => {
   try {
     const seriesId = String(req.params.seriesId || "");
     await renderAdmin(req, res, { initialView: "series-detail", seriesDetailId: seriesId });
@@ -213,26 +230,26 @@ adminRouter.get("/series/:seriesId", requireAdmin, async (req, res, next) => {
   }
 });
 
-adminRouter.get("/series/:seriesId/episodes/new", requireAdmin, async (req, res) => {
+adminRouter.get("/series/:seriesId/episodes/new", accessTo("series-edit"), async (req, res) => {
   await renderAdmin(req, res, { initialView: "series-episode-new", seriesDetailId: String(req.params.seriesId) });
 });
 
 for (const page of ["edit", "preview"]) {
-  adminRouter.get(`/series/:seriesId/${page}`, requireAdmin, async (req, res) => {
+  adminRouter.get(`/series/:seriesId/${page}`, accessTo(page === "preview" ? "series-preview" : "series-edit"), async (req, res) => {
     await renderAdmin(req, res, { initialView: `series-${page}`, seriesDetailId: String(req.params.seriesId) });
   });
 }
 
-adminRouter.get("/api/upload-notifications", requireAdmin, async (_req, res) => {
+adminRouter.get("/api/upload-notifications", accessTo("series-edit"), async (_req, res) => {
   const queue = buildUploadList(await listEpisodes(true)).filter(item => item.issue);
   res.set("Cache-Control", "private, no-store").render("partials/layout/upload-notifications", { queue });
 });
 
-adminRouter.get("/users/:userId", requireAdmin, async (req, res) => {
+adminRouter.get("/users/:userId", accessTo("settings"), async (req, res) => {
   await renderAdmin(req, res, { initialView: "user-profile", userId: String(req.params.userId) });
 });
 
-adminRouter.post("/users/:userId/access", requireAdmin, async (req, res) => {
+adminRouter.post("/users/:userId/access", accessTo("settings"), async (req, res) => {
   const userId = String(req.params.userId);
   try {
     await setAccountAccess(userId, req.body.status, req.body.confirmation);
@@ -244,13 +261,14 @@ adminRouter.post("/users/:userId/access", requireAdmin, async (req, res) => {
   res.redirect(303, adminPath(req, `/users/${encodeURIComponent(userId)}?saved=1`));
 });
 
-adminRouter.get("/monetization/:kind/:id", requireAdmin, async (req, res) => {
+adminRouter.get("/monetization/:kind/:id", accessTo("settings"), async (req, res) => {
   await renderAdmin(req, res, { initialView: "record-detail", recordKind: String(req.params.kind), recordId: String(req.params.id) });
 });
 
-adminRouter.post("/settings", requireAdmin, async (req, res) => {
+adminRouter.post("/settings", accessTo("settings"), async (req, res) => {
   try {
     await saveEpisodeDefaults(req.body.freeOpening, req.body.lockedPrice);
+    await saveMonetizationSettings(req.body);
   } catch (error) {
     if (!(error instanceof MediaError) || error.status !== 400) throw error;
     await renderAdmin(req, res, { initialView: "settings", status: 400, formError: error.message });
@@ -267,6 +285,7 @@ adminRouter.get("/:view", requireAdmin, async (req, res, next) => {
       return;
     }
 
+    if (!canOpenView(req.admin!.role, view)) { res.status(403).send("Your role does not have access to this page."); return; }
     await renderAdmin(req, res, { initialView: view });
   } catch (error) {
     next(error);
@@ -284,7 +303,7 @@ async function seriesDetails(req: Request) {
   return { title, defaultEpisodeAccess: access, genres, synopsis: stringBody(req.body.synopsis), posterImageId };
 }
 
-adminRouter.post("/series", requireAdmin, async (req, res, next) => {
+adminRouter.post("/series", accessTo("series-edit"), async (req, res, next) => {
   try {
     const details = await seriesDetails(req);
     const posterData = stringBody(req.body.posterDataUrl);
@@ -308,7 +327,7 @@ adminRouter.post("/series", requireAdmin, async (req, res, next) => {
   }
 });
 
-adminRouter.post("/series/:seriesId/edit", requireAdmin, async (req, res) => {
+adminRouter.post("/series/:seriesId/edit", accessTo("series-edit"), async (req, res) => {
   await editSeries(Number(req.params.seriesId), {
     ...await seriesDetails(req),
     status: req.body.status === undefined ? undefined : enumBody<SeriesStatus>(req.body.status, ["live", "draft"], "draft"),
@@ -318,19 +337,19 @@ adminRouter.post("/series/:seriesId/edit", requireAdmin, async (req, res) => {
   else res.redirect(303, redirectTo);
 });
 
-adminRouter.post("/series/:seriesId/duplicate", requireAdmin, async (req, res) => {
+adminRouter.post("/series/:seriesId/duplicate", accessTo("series-edit"), async (req, res) => {
   await duplicateSeries(Number(req.params.seriesId));
   res.redirect(303, adminViewPath(req, "series"));
 });
 
-adminRouter.post("/series/:seriesId/delete", requireAdmin, async (req, res) => {
+adminRouter.post("/series/:seriesId/delete", accessTo("series-edit"), async (req, res) => {
   const count = stringBody(req.body.expectedEpisodes);
   if (!/^\d+$/.test(count)) throw new MediaError(400, "Confirm the episode count before deleting.");
   await deleteSeries(Number(req.params.seriesId), Number(count), typeof req.body.confirmationTitle === "string" ? req.body.confirmationTitle : "");
   res.redirect(303, adminViewPath(req, "series"));
 });
 
-adminRouter.post("/series/:seriesId/poster", requireAdmin, async (req, res, next) => {
+adminRouter.post("/series/:seriesId/poster", accessTo("series-edit"), async (req, res, next) => {
   try {
     const seriesId = paramNumber(req.params.seriesId);
     const imageId = stringBody(req.body?.posterImageId);
@@ -348,7 +367,7 @@ adminRouter.post("/series/:seriesId/poster", requireAdmin, async (req, res, next
   }
 });
 
-adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
+adminRouter.post("/episodes", accessTo("series-edit"), async (req, res, next) => {
   try {
     const seriesId = numberBody(req.body.seriesId);
     const episodeNumber = numberBody(req.body.episodeNumber);
@@ -419,7 +438,7 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
   }
 });
 
-adminRouter.post("/series/:seriesId/status", requireAdmin, async (req, res, next) => {
+adminRouter.post("/series/:seriesId/status", accessTo("series-edit"), async (req, res, next) => {
   try {
     const seriesId = paramNumber(req.params.seriesId);
     const status = enumBody<SeriesStatus>(req.body.status, ["draft", "live"], "draft");
@@ -434,7 +453,7 @@ adminRouter.post("/series/:seriesId/status", requireAdmin, async (req, res, next
   }
 });
 
-adminRouter.post("/episodes/:episodeId/status", requireAdmin, async (req, res, next) => {
+adminRouter.post("/episodes/:episodeId/status", accessTo("series-edit"), async (req, res, next) => {
   try {
     const episodeId = paramNumber(req.params.episodeId);
     const status = enumBody<EpisodeStatus>(req.body.status, ["draft", "processing", "live"], "draft");
@@ -453,7 +472,7 @@ adminRouter.post("/episodes/:episodeId/status", requireAdmin, async (req, res, n
   }
 });
 
-adminRouter.post("/episodes/:episodeId/delete", requireAdmin, async (req, res, next) => {
+adminRouter.post("/episodes/:episodeId/delete", accessTo("series-edit"), async (req, res, next) => {
   try {
     const episodeId = paramNumber(req.params.episodeId);
     await deleteEpisode(episodeId);
@@ -471,7 +490,7 @@ adminRouter.post("/episodes/:episodeId/delete", requireAdmin, async (req, res, n
   }
 });
 
-adminRouter.post("/api/episodes/:episodeId/tus-upload-url", requireAdmin, async (req, res, next) => {
+adminRouter.post("/api/episodes/:episodeId/tus-upload-url", accessTo("series-edit"), async (req, res, next) => {
   try {
     await reserveStreamUpload(req, res, paramNumber(req.params.episodeId));
   } catch (error) {
@@ -479,7 +498,7 @@ adminRouter.post("/api/episodes/:episodeId/tus-upload-url", requireAdmin, async 
   }
 });
 
-adminRouter.post("/api/episodes/:episodeId/local-video", requireAdmin, async (req, res, next) => {
+adminRouter.post("/api/episodes/:episodeId/local-video", accessTo("series-edit"), async (req, res, next) => {
   try {
     if (!allowLocalMedia) throw new MediaError(404, "This page is using the old video uploader. Reload the page, then choose the file again to upload to Cloudflare Stream.");
     const episodeId = paramNumber(req.params.episodeId);
@@ -495,7 +514,7 @@ adminRouter.post("/api/episodes/:episodeId/local-video", requireAdmin, async (re
   }
 });
 
-adminRouter.post("/api/cloudflare/tus-upload-url", requireAdmin, async (req, res, next) => {
+adminRouter.post("/api/cloudflare/tus-upload-url", accessTo("series-edit"), async (req, res, next) => {
   try {
     await reserveStreamUpload(req, res, numberBody(req.body?.episodeId));
   } catch (error) {
@@ -503,7 +522,7 @@ adminRouter.post("/api/cloudflare/tus-upload-url", requireAdmin, async (req, res
   }
 });
 
-adminRouter.post("/api/cloudflare/image-upload-url", requireAdmin, async (req, res, next) => {
+adminRouter.post("/api/cloudflare/image-upload-url", accessTo("series-edit"), async (req, res, next) => {
   try {
     const upload = await createImageDirectUpload();
     res.set("Cache-Control", "no-store").json(upload);
@@ -512,7 +531,7 @@ adminRouter.post("/api/cloudflare/image-upload-url", requireAdmin, async (req, r
   }
 });
 
-adminRouter.post("/api/episodes/:episodeId/cloudflare-complete", requireAdmin, async (req, res, next) => {
+adminRouter.post("/api/episodes/:episodeId/cloudflare-complete", accessTo("series-edit"), async (req, res, next) => {
   try {
     const episodeId = paramNumber(req.params.episodeId);
     const uid = stringBody(req.body?.uid);
@@ -535,7 +554,7 @@ adminRouter.post("/api/episodes/:episodeId/cloudflare-complete", requireAdmin, a
   }
 });
 
-adminRouter.post("/api/episodes/:episodeId/refresh-video", requireAdmin, async (req, res, next) => {
+adminRouter.post("/api/episodes/:episodeId/refresh-video", accessTo("series-edit"), async (req, res, next) => {
   try {
     const episodeId = paramNumber(req.params.episodeId);
     const episode = await requireEpisodeMedia(episodeId);

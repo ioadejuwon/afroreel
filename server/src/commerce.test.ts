@@ -10,5 +10,6 @@ describe("coin product catalog", () => {
   it("uses unique identifiers and positive coin amounts", () => {
     expect(new Set(coinProducts.map((product) => product.productId)).size).toBe(coinProducts.length);
     expect(coinProducts.every((product) => product.coins > 0)).toBe(true);
+    expect(coinProducts.map((product) => product.coins)).toEqual([100, 330, 1150]);
   });
 });

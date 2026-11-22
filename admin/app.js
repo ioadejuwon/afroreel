@@ -37,6 +37,77 @@ window.addEventListener("resize", () => {
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
 
+document.querySelectorAll("[data-team-form]").forEach(form => {
+  function showPermissions() {
+    form.querySelectorAll("[data-permissions]").forEach(panel => {
+      panel.hidden = panel.dataset.permissions !== form.elements.role.value;
+    });
+  }
+  form.addEventListener("change", showPermissions);
+  showPermissions();
+});
+
+const teamDrawer = document.querySelector(".team-drawer");
+document.querySelectorAll("[data-team-edit]").forEach(button => {
+  button.addEventListener("click", () => {
+    const { path, name, email, role, kind } = button.dataset;
+    const form = teamDrawer.querySelector("form");
+    form.action = path + "/access";
+    form.elements.role.value = role;
+    form.dispatchEvent(new Event("change"));
+    const remove = form.querySelector("[data-remove]");
+    remove.formAction = path + "/remove";
+    remove.textContent = kind === "invite" ? "Revoke invitation" : "Remove from team";
+    form.querySelector("[data-team-person]").textContent = name + " · " + email;
+    teamDrawer.showModal();
+  });
+});
+teamDrawer?.querySelectorAll("[data-dismiss]").forEach(button => button.addEventListener("click", () => teamDrawer.close()));
+teamDrawer?.querySelector("[data-remove]").addEventListener("click", event => {
+  const member = teamDrawer.querySelector("[data-team-person]").textContent;
+  if (!window.confirm(event.currentTarget.textContent + " — " + member + "?")) event.preventDefault();
+});
+
+document.querySelectorAll("[data-team-emails]").forEach(input => {
+  const form = input.form;
+  const values = new Set();
+  const box = document.createElement("div");
+  box.className = "tags-input";
+  input.removeAttribute("name");
+  input.setAttribute("aria-label", "Email addresses");
+  input.parentElement.after(box);
+  box.append(input);
+  const hidden = document.createElement("input");
+  hidden.type = "hidden";
+  hidden.name = "emails";
+  form.append(hidden);
+  function sync() {
+    hidden.value = [...values].join(", ");
+    input.required = !values.size;
+  }
+  function commit() {
+    for (const email of input.value.toLowerCase().split(/[\s,;]+/).filter(Boolean)) {
+      if (values.has(email)) continue;
+      values.add(email);
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.textContent = email + " ×";
+      chip.setAttribute("aria-label", "Remove " + email);
+      chip.onclick = () => { values.delete(email); chip.remove(); sync(); input.focus(); };
+      box.insertBefore(chip,input);
+    }
+    input.value = "";
+    sync();
+  }
+  input.addEventListener("keydown", event => {
+    if (!event.isComposing && ["Enter",","].includes(event.key)) { event.preventDefault(); commit(); }
+  });
+  form.addEventListener("submit", event => {
+    commit();
+    if (!values.size) { event.preventDefault(); input.reportValidity(); }
+  });
+});
+
 const library = document.querySelector("#series");
 const libraryCards = Array.from(document.querySelectorAll("[data-series-status]"));
 const searchInput = document.querySelector('.search input[type="search"]');

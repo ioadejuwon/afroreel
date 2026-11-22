@@ -92,6 +92,8 @@ export const ledgers = {
     columns: "t.coin_amount, t.product_id, t.platform, t.provider_transaction_id" },
   unlocks: { title: "Episode unlocks", table: "episode_unlocks", field: "method", types: ["coins", "ad", "free"],
     columns: "t.episode_id" },
+  claims: { title: "Ad reward claims", table: "ad_reward_claims", field: "status", types: ["pending", "verified", "expired", "rejected"],
+    columns: "t.episode_id, t.provider_event_id, t.ad_unit_id, t.rejection_reason" },
 };
 export type Ledger = keyof typeof ledgers;
 

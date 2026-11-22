@@ -1,0 +1,13 @@
+<section class="view active studio-page team-page">
+<nav class="crumbs" aria-label="Breadcrumb"><a href="<%= adminPath %>/team">Admin team</a> / <span>Invite admin</span></nav>
+<header class="studio-heading"><h1>Invite admin</h1><p><%= previewOnly ? 'Local preview: you’ll get a setup link to test the invitation.' : 'They’ll get an email with a link to set up their account.' %></p></header>
+<form class="studio-grid episode-grid" method="post" action="<%= adminPath %>/team/invite" data-team-form>
+<input type="hidden" name="_csrf" value="<%= csrfToken %>">
+<section class="studio-panel fields-pane"><h2>Who are you inviting?</h2>
+<label>Email addresses<input name="emails" required placeholder="Add an email address" data-team-emails></label>
+<small>Press Enter after each address to invite several people at once.</small>
+<%- include("team-roles") %>
+<label>Personal message (optional)<textarea name="message" maxlength="1000" rows="4" placeholder="Welcome to the team."></textarea></label>
+</section><aside class="studio-panel"><%- include("team-permissions") %><p>You can change this later from the Admin team page.</p></aside>
+<footer class="studio-actions"><a class="ghost-button" href="<%= adminPath %>/team">Cancel</a><button class="primary-button">Send invite</button></footer>
+</form></section>

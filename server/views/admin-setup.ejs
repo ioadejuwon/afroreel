@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Set up account · AfroReel</title><%- include('partials/layout/app-icons') %><link rel="stylesheet" href="<%= adminPath %>/styles.css"></head>
+<body class="auth-page"><main class="auth-shell"><section class="auth-panel">
+<div class="brand auth-brand"><img class="brand-mark" width="40" height="40" src="<%= adminPath %>/icons/icon-192.png" alt=""><div><strong>AfroReel</strong><span>Admin Studio</span></div></div>
+<% if (!invite) { %><h1>Invitation unavailable</h1><p>This link has expired, was used, or was replaced. Ask the Studio Owner for a new invitation.</p><a href="<%= adminPath %>/login">Sign in</a>
+<% } else { %><h1>Set up your account</h1><p>You’ve been invited to join AfroReel as <strong><%= invite.role %></strong>.</p>
+<% if (error) { %><p class="auth-error" role="alert"><%= error %></p><% } %>
+<form method="post" class="auth-form"><input type="hidden" name="_csrf" value="<%= csrfToken %>">
+<label>Email address<input type="email" value="<%= invite.email %>" readonly></label>
+<label>Your name<input name="name" value="<%= name %>" required maxlength="120" autocomplete="name" autofocus></label>
+<label>Choose a password<input type="password" name="password" minlength="12" required autocomplete="new-password"><small>Use at least 12 characters.</small></label>
+<button class="primary-button">Set up account</button></form><% } %></section></main></body></html>

@@ -1,1 +1,0 @@
-ALTER TABLE series ADD COLUMN poster_image_id VARCHAR(190) NULL;

@@ -101,6 +101,6 @@ npm --prefix mobile run lint
 
 ## Current limitations
 
-- Production disables prototype wallet top-ups and unverified ad unlocks. Store receipt and AdMob SSV credentials must be configured before enabling monetization.
+- Production disables prototype wallet top-ups and unverified ad unlocks. Configure Apple/Google verification credentials, store webhooks, AdMob rewarded units, and SSV before enabling monetization; see `docs/monetization-setup.md`.
 - Automated integration tests have not yet been added; current checks cover TypeScript and linting.
 - The mobile entry screen is being split into services, types, screens, hooks, and reusable components incrementally.

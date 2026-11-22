@@ -1,0 +1,5 @@
+<fieldset class="team-roles"><legend>Access level</legend>
+<div class="role-options"><% for (const role of inviteRoles) { %>
+<label><input type="radio" name="role" value="<%= role %>" <%= role === "editor" ? "checked" : "" %>>
+<span><strong><%= role[0].toUpperCase()+role.slice(1) %></strong><small><%= roleDescriptions[role] %></small></span></label>
+<% } %></div></fieldset>

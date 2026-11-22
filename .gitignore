@@ -57,3 +57,4 @@ venv/
 *.jks
 
 uploads/
+database/

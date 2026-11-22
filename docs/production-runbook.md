@@ -9,6 +9,14 @@
 
 Before enabling deployment, confirm cPanel provides SSH, a persistent Node 22 application, environment variables, MySQL, TLS proxying, logs, cron, and a Passenger restart mechanism. If any are unavailable, deploy the API to managed Node hosting while retaining Namecheap DNS.
 
+## Admin team invitations
+
+After applying migrations, designate the existing Owner by their exact sign-in email with `npm run admin:owner -- 'owner@your-domain.example'`. The command requires an active account and preserves its password. For a fresh database, use `admin:bootstrap` first. All other existing admins retain the Admin role.
+
+Verify a sending domain in Resend, set `EMAIL_FROM` to an address on it, and store a sending-only `RESEND_API_KEY` in the server environment. Set `PUBLIC_BASE_URL` to the deployed HTTPS app URL including its deployment prefix. Restart the app. From **Admin team → Invite admin**, invite a designated test inbox and confirm the setup link opens the deployed studio, lets the recipient choose a password, and shows them as Active. The team page reports provider acceptance. Check the recipient inbox to verify delivery.
+
+In development with no Resend key, the Owner sees a local setup preview in the per-address results. Open it in a private browser window to keep the Owner session separate. Resend issues a fresh link if you close the results page. Each invitation expires after 48 hours. Production displays a retry action when sending fails.
+
 ## GitHub environments
 
 Create protected `staging` and `production` environments. Require manual reviewers for production and define `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, `DEPLOY_SSH_KEY`, and `HEALTHCHECK_URL` secrets in each environment. Production deployment is permitted only from a `v*` tag or an explicitly approved workflow dispatch.

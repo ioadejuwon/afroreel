@@ -33,10 +33,18 @@ import {
 } from "../content";
 import { createPlaybackUrl, createThumbnailUrl, episodePreviewId, imageDeliveryUrl, isStreamVideoUid, MediaError, STREAM_PLAYBACK_TTL_SECONDS } from "../cloudflare";
 import { coinProducts } from "../commerce";
+import {
+  adUnlockAllowance,
+  adRewardClaim,
+  createAdRewardClaim,
+  creditVerifiedPurchase,
+  monetizationSettings,
+  verifyStorePurchase,
+} from "../monetization";
 import { legacyMediaUrl, posterUrl } from "../media";
 
 export const apiRouter = Router();
-const walletTopUpCoins = new Set([100, 300, 1000]);
+const walletTopUpCoins = new Set<number>(coinProducts.map((product) => product.coins));
 
 apiRouter.post("/auth/signup", async (req, res, next) => {
   try {
@@ -110,6 +118,68 @@ apiRouter.get("/store/products", (_req, res) => {
 });
 
 apiRouter.use(requireMobileUser);
+
+apiRouter.post("/store/purchases", async (req, res, next) => {
+  try {
+    if (!(await monetizationSettings()).monetization_enabled) {
+      res.status(403).json({ error: "Purchases are temporarily unavailable." });
+      return;
+    }
+    const purchase = await verifyStorePurchase({
+      platform: req.body?.platform,
+      productId: req.body?.productId,
+      transactionId: req.body?.transactionId,
+      purchaseToken: req.body?.purchaseToken,
+    });
+    const result = await creditVerifiedPurchase(mobileUserId(req), purchase);
+    req.mobileUser = { ...req.mobileUser!, coinBalance: result.newCoinBalance };
+    res.json({
+      success: true,
+      productId: purchase.productId,
+      coinsAdded: result.coinsAdded,
+      alreadyProcessed: result.alreadyProcessed,
+      user: mobileUserResponse(req.mobileUser),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get("/monetization", async (req, res, next) => {
+  try {
+    const settings = await monetizationSettings();
+    const allowance = await adUnlockAllowance(mobileUserId(req));
+    res.json({
+      enabled: Boolean(settings.monetization_enabled),
+      adUnlockEnabled: Boolean(settings.ad_unlock_enabled),
+      dailyAdUnlockLimit: Number(settings.daily_ad_unlock_limit),
+      adUnlocksRemaining: allowance.remaining,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.post("/ad-rewards/claims", async (req, res, next) => {
+  try {
+    const episodeId = stringBody(req.body?.episodeId);
+    if (!episodeId) {
+      res.status(400).json({ error: "Choose an episode to unlock." });
+      return;
+    }
+    res.status(201).json(await createAdRewardClaim(mobileUserId(req), episodeId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+apiRouter.get("/ad-rewards/claims/:nonce", async (req, res, next) => {
+  try {
+    res.json(await adRewardClaim(mobileUserId(req), String(req.params.nonce)));
+  } catch (error) {
+    next(error);
+  }
+});
 
 apiRouter.patch("/account/profile", async (req, res, next) => {
   try {
@@ -221,6 +291,10 @@ apiRouter.post("/wallet/topup", async (req, res, next) => {
       });
       return;
     }
+    if (!(await monetizationSettings()).monetization_enabled) {
+      res.status(403).json({ error: "Purchases are temporarily unavailable." });
+      return;
+    }
     const coins = Number.parseInt(String(req.body?.coins ?? "0"), 10);
 
     if (!walletTopUpCoins.has(coins)) {
@@ -291,6 +365,10 @@ apiRouter.get("/profile/likes", async (req, res, next) => {
 
 apiRouter.post("/episodes/:episodeId/unlock", async (req, res, next) => {
   try {
+    if (!(await monetizationSettings()).monetization_enabled) {
+      res.status(403).json({ error: "Episode purchases are temporarily unavailable." });
+      return;
+    }
     const publicEpisodeId = req.params.episodeId;
     const episodeId = await getEpisodePublicId(publicEpisodeId);
     if (!episodeId) {

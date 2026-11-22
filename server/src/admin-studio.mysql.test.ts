@@ -9,6 +9,7 @@ import { analyticsReport, listRecords, recordDetail, setAccountAccess, userDirec
 import { seriesEpisodeAccess, episodeAccess, episodeDefaults, saveEpisodeDefaults } from "./admin-settings";
 import { createMobileUser, findCurrentMobileUser, rotateMobileRefreshToken } from "./auth";
 import { unlockEpisode } from "./content";
+import { acceptInvitation, changeMember, emailsFrom, invitationForSetup, resendInvitation, sendInvitation } from "./admin-team";
 
 const fixture = vi.hoisted(() => ({ socket: process.env.ADMIN_TEST_SOCKET, schema: "afroreel_admin_test_" + Math.random().toString(16).slice(2) }));
 vi.mock("./db", async () => {
@@ -39,6 +40,57 @@ describe.skipIf(!fixture.socket)("admin studio reports and operations", () => {
     await pool.end();
     if (created) await root.query("DROP DATABASE " + fixture.schema);
     await root?.end();
+  });
+
+  it("keeps pending invites separate, rotates expiring links, and accepts once", async () => {
+    const email = "studio-invite@example.test";
+    const previousMode = config.nodeEnv, previousKey = config.resend.apiKey;
+    config.nodeEnv = "development";
+    config.resend.apiKey = "";
+    try {
+      const result = await sendInvitation(email, "editor", "Welcome", "/admin");
+      const first = result.preview!.split("/").pop()!;
+      expect((await invitationForSetup(first)).role).toBe("editor");
+      expect(await invitationForSetup(first)).toBeTruthy();
+      expect((await sendInvitation(email, "admin", "", "/admin")).preview).toBeUndefined();
+      const id = (await invitationForSetup(first)).id;
+      await pool.execute("UPDATE admin_invitations SET expires_at=NOW()-INTERVAL 1 SECOND WHERE id=?",[id]);
+      expect(await invitationForSetup(first)).toBeUndefined();
+      const second = (await resendInvitation(id, "/admin")).preview!.split("/").pop()!;
+      expect(await invitationForSetup(first)).toBeUndefined();
+      await changeMember("invite", id, "analyst");
+      const attempts = await Promise.allSettled([1,2].map(() => acceptInvitation(second, "Team member", "Private password 1234")));
+      expect(attempts.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect((await sendInvitation(email, "admin", "", "/admin")).text).toContain("active member");
+      const [users] = await pool.query<mysql.RowDataPacket[]>("SELECT id,role FROM admins WHERE email=?",[email]);
+      expect(users[0].role).toBe("analyst");
+      await changeMember("member",users[0].id,null);
+      const third = (await sendInvitation(email,"editor","","/admin")).preview!.split("/").pop()!;
+      await changeMember("invite",(await invitationForSetup(third)).id,null);
+      await expect(acceptInvitation(third,"Member","Private password 1234")).rejects.toThrow("unavailable");
+    } finally { config.nodeEnv = previousMode; config.resend.apiKey = previousKey; }
+  });
+
+  it("reports mixed delivery outcomes per address without exposing tokens", async () => {
+    const key = config.resend.apiKey, base = config.publicBaseUrl;
+    vi.stubEnv("EMAIL_FROM", "team@example.test");
+    config.resend.apiKey = "fixture";
+    config.publicBaseUrl = "https://studio.example.test/catalog";
+    const send = vi.fn().mockResolvedValueOnce(new Response("{}", {status:200})).mockResolvedValueOnce(new Response("{}", {status:422}));
+    vi.stubGlobal("fetch",send);
+    try {
+      const emails = emailsFrom("one@test.example Two@test.example,ONE@test.example");
+      expect(emails.length).toBe(2);
+      const results = [];
+      for (const email of emails) results.push(await sendInvitation(email,"admin","Hello <team>","/catalog/admin"));
+      expect(results[0]).toMatchObject({text:"Invite sent"});
+      expect(results[1].retryId).toBeTruthy();
+      expect(results.every(r => !r.preview)).toBe(true);
+      expect(send.mock.calls[0][1].body).toContain("https://studio.example.test/catalog/admin/setup/");
+      expect(send.mock.calls[0][1].body).toContain("Hello &lt;team&gt;");
+    } finally {
+      vi.unstubAllGlobals(); vi.unstubAllEnvs(); config.resend.apiKey=key; config.publicBaseUrl=base;
+    }
   });
 
   it("uses stable IDs for duplicate names and keeps an empty report usable", async () => {

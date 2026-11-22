@@ -14,6 +14,7 @@
     "previews:backfill": "tsx server/src/backfill-episode-previews.ts",
     "db:migrate": "tsx server/src/migrate.ts",
     "admin:bootstrap": "tsx server/src/bootstrap-admin.ts",
+    "admin:owner": "tsx server/src/designate-owner.ts",
     "media:cleanup": "tsx server/src/run-media.ts cleanup",
     "media:audit": "tsx server/src/run-media.ts audit"
   },

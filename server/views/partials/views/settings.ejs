@@ -6,6 +6,13 @@
       <input type="hidden" name="freeOpening" value="<%= defaults.free_opening_episodes %>" />
       <label>Default locked episode price (coins)<input name="lockedPrice" type="number" min="0" max="4294967295" required value="<%= defaults.locked_coin_price %>" />
         <small>You can override access and price when adding an episode.</small></label>
+      <fieldset>
+        <legend>Monetization availability</legend>
+        <label><input name="monetizationEnabled" type="checkbox" <%- monetization.monetization_enabled ? "checked" : "" %> /> Enable purchases and unlocks</label>
+        <label><input name="adUnlockEnabled" type="checkbox" <%- monetization.ad_unlock_enabled ? "checked" : "" %> /> Enable AdMob episode unlocks</label>
+        <label>Ad unlocks per rolling 24 hours<input name="dailyAdUnlockLimit" type="number" min="0" max="100" required value="<%= monetization.daily_ad_unlock_limit %>" />
+          <small>This limit is enforced by the server after AdMob verification.</small></label>
+      </fieldset>
       <% if (formError) { %><p class="form-error" role="alert"><%= formError %></p><% } %>
       <% if (saved) { %><p class="save-feedback" role="status">Episode defaults saved.</p><% } %>
       <button class="primary-button">Save defaults</button>

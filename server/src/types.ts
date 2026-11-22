@@ -1,6 +1,10 @@
 import "express-session";
 
+export type AdminRole = "owner" | "admin" | "editor" | "analyst";
+
 export interface AdminSessionUser {
+  role: AdminRole;
+  session_version: number;
   id: number;
   name: string;
   email: string;
@@ -18,6 +22,7 @@ export interface MobileSessionUser {
 declare module "express-session" {
   interface SessionData {
     adminId?: number;
+    adminVersion?: number;
   }
 }
 

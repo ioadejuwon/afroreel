@@ -178,7 +178,7 @@ export async function ensureMobileAuthSchema(): Promise<void> {
 
 export async function findCurrentAdmin(adminId: number): Promise<AdminSessionUser | null> {
   const [rows] = await pool.execute<RowDataPacket[]>(
-    "SELECT id, name, email FROM admins WHERE id = ? AND is_active = 1 LIMIT 1",
+    "SELECT id, name, email, role, session_version FROM admins WHERE id = ? AND is_active = 1 LIMIT 1",
     [adminId],
   );
   const admin = rows[0] as AdminRow | undefined;
@@ -372,10 +372,15 @@ export async function attachCurrentAdmin(req: Request, _res: Response, next: Nex
 
     const admin = await findCurrentAdmin(req.session.adminId);
 
-    if (!admin) {
+    if (!admin || (req.session.adminVersion ?? 1) !== admin.session_version) {
       delete req.session.adminId;
+      delete req.session.adminVersion;
     } else {
       req.admin = admin;
+      await pool.execute(
+        "UPDATE admins SET last_active_at = NOW() WHERE id = ? AND (last_active_at IS NULL OR last_active_at < NOW() - INTERVAL 1 MINUTE)",
+        [admin.id],
+      );
     }
 
     next();
@@ -386,7 +391,7 @@ export async function attachCurrentAdmin(req: Request, _res: Response, next: Nex
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   if (!req.admin) {
-    res.redirect(`${req.baseUrl || "/admin"}/login`);
+    res.redirect(`${res.locals.adminPath || req.baseUrl || "/admin"}/login`);
     return;
   }
 
