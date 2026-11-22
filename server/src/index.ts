@@ -100,6 +100,10 @@ app.use(attachCurrentAdmin);
 for (const basePath of basePaths) {
   const adminPath = withBasePath(basePath, "/admin");
 
+  app.get(withBasePath(basePath, "/admin/series-studio.css"), (_req, res) => {
+    res.sendFile(path.join(adminAssetsDir, "series-studio.css"));
+  });
+
   app.get(withBasePath(basePath, "/admin/styles.css"), (_req, res) => {
     res.sendFile(path.join(adminAssetsDir, "styles.css"));
   });

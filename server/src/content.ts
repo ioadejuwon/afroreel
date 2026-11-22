@@ -19,6 +19,7 @@ export type SeriesRow = RowDataPacket & {
   poster_url: string | null;
   poster_image_id: string | null;
   status: SeriesStatus;
+  default_episode_access: "free" | "locked";
   episode_count: number;
   free_episode_count: number;
   latest_episode_at: Date | string | null;
@@ -510,6 +511,8 @@ export async function listSeries(includeDrafts = true, userId?: string): Promise
 }
 
 type SeriesDetails = {
+  defaultEpisodeAccess?: "free" | "locked";
+  status?: SeriesStatus;
   title: string;
   synopsis: string;
   genres: string;
@@ -525,9 +528,9 @@ export async function createSeries(input: SeriesDetails & {
   return mediaTransaction(async db => {
     if (input.posterImageId) await verifyPosterImage(input.posterImageId);
     const [result] = await db.execute<ResultSetHeader>(
-      `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [seriesId, input.title, slug, input.synopsis || null, input.genres || null, input.posterUrl, input.posterImageId, input.status],
+      `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status, default_episode_access)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [seriesId, input.title, slug, input.synopsis || null, input.genres || null, input.posterUrl, input.posterImageId, input.status, input.defaultEpisodeAccess ?? "free"],
     );
 
     return {
@@ -544,9 +547,9 @@ export async function editSeries(seriesId: number, details: SeriesDetails): Prom
       await retirePoster(db, seriesId, details.posterImageId);
     }
     const [result] = await db.execute<ResultSetHeader>(
-      `UPDATE series SET title = ?, synopsis = ?, genres = ?, poster_image_id = COALESCE(?, poster_image_id)
+      `UPDATE series SET title = ?, synopsis = ?, genres = ?, default_episode_access = COALESCE(?, default_episode_access), status = COALESCE(?, status), poster_image_id = COALESCE(?, poster_image_id)
         WHERE id = ?`,
-      [details.title, details.synopsis || null, details.genres || null, details.posterImageId, seriesId],
+      [details.title, details.synopsis || null, details.genres || null, details.defaultEpisodeAccess ?? null, details.status ?? null, details.posterImageId, seriesId],
     );
     if (!result.affectedRows) throw new MediaError(404, "Series not found.");
   });
@@ -556,8 +559,8 @@ export async function duplicateSeries(sourceId: number): Promise<void> {
   const publicId = await uniqueSeriesId();
   await mediaTransaction(async db => {
     const [result] = await db.execute<ResultSetHeader>(
-      `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status)
-       SELECT ?, LEFT(CONCAT('Copy of ', title), 190), CONCAT('copy-', ?), synopsis, genres, poster_url, poster_image_id, 'draft'
+      `INSERT INTO series (series_id, title, slug, synopsis, genres, poster_url, poster_image_id, status, default_episode_access)
+       SELECT ?, LEFT(CONCAT('Copy of ', title), 190), CONCAT('copy-', ?), synopsis, genres, poster_url, poster_image_id, 'draft', default_episode_access
          FROM series WHERE id = ?`,
       [publicId, publicId, sourceId],
     );
@@ -565,12 +568,12 @@ export async function duplicateSeries(sourceId: number): Promise<void> {
   });
 }
 
-export async function deleteSeries(seriesId: number, expectedEpisodes: number): Promise<void> {
+export async function deleteSeries(seriesId: number, expectedEpisodes: number, confirmationTitle: string): Promise<void> {
   await mediaTransaction(async db => {
     const assets = [...await seriesAssets(db, seriesId), ...await episodeAssets(db, "WHERE series_id = ?", [seriesId])];
     const [result] = await db.execute<ResultSetHeader>(
-      "DELETE FROM series WHERE id = ? AND (SELECT COUNT(*) FROM episodes WHERE series_id = ?) = ?",
-      [seriesId, seriesId, expectedEpisodes],
+      "DELETE FROM series WHERE id = ? AND BINARY title = BINARY ? AND (SELECT COUNT(*) FROM episodes WHERE series_id = ?) = ?",
+      [seriesId, confirmationTitle, seriesId, expectedEpisodes],
     );
     if (!result.affectedRows) throw new MediaError(409, "The series changed. Refresh the library and review it before deleting.");
     await queueAssets(db, assets);
@@ -652,13 +655,14 @@ export async function createEpisode(input: {
   coinCost: number;
   releaseDate: string | null;
   status: EpisodeStatus;
+  publishWhenReady?: boolean;
 }): Promise<number> {
   const episodeId = await uniqueEpisodeId();
   return mediaTransaction(async db => {
     const [result] = await db.execute<ResultSetHeader>(
       `INSERT INTO episodes
-         (episode_id, series_id, episode_number, title, hook, is_free, coin_cost, release_date, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (episode_id, series_id, episode_number, title, hook, is_free, coin_cost, release_date, status, publish_when_ready)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         episodeId,
         input.seriesId,
@@ -669,6 +673,7 @@ export async function createEpisode(input: {
         input.coinCost,
         input.releaseDate,
         input.status,
+        input.publishWhenReady ?? false,
       ],
     );
 
@@ -740,7 +745,7 @@ export async function attachLocalVideo(episodeId: number, videoUrl: string): Pro
           SET cloudflare_video_uid = ?, cloudflare_ready = 1,
               cloudflare_pending_uid = NULL, cloudflare_upload_state = NULL, cloudflare_upload_error = NULL,
               cloudflare_thumbnail_time_ms = NULL, thumbnail_url = NULL, duration_seconds = NULL,
-              status = IF(status = 'processing', 'draft', status)
+              status = IF(publish_when_ready, 'live', IF(status = 'processing', 'draft', status)), publish_when_ready = FALSE
         WHERE id = ?`,
       [`local:${videoUrl}`, episodeId],
     );
@@ -756,7 +761,7 @@ export async function setSeriesStatus(seriesId: number, status: SeriesStatus): P
 export async function setEpisodeStatus(episodeId: number, status: EpisodeStatus): Promise<void> {
   if (status === "live") {
     const [result] = await pool.execute<ResultSetHeader>(
-      `UPDATE episodes SET status = 'live'
+      `UPDATE episodes SET status = 'live', publish_when_ready = FALSE
         WHERE id = ? AND cloudflare_ready = 1 AND cloudflare_video_uid IS NOT NULL
           AND (? OR cloudflare_video_uid NOT LIKE 'local:%')`,
       [episodeId, allowLocalMedia],
@@ -766,7 +771,7 @@ export async function setEpisodeStatus(episodeId: number, status: EpisodeStatus)
     }
     return;
   }
-  await pool.execute("UPDATE episodes SET status = ? WHERE id = ?", [status, episodeId]);
+  await pool.execute("UPDATE episodes SET status = ?, publish_when_ready = FALSE WHERE id = ?", [status, episodeId]);
 }
 
 export async function deleteEpisode(episodeId: number): Promise<void> {
@@ -811,7 +816,7 @@ export async function applyStreamVideoStatus(video: StreamVideo): Promise<void> 
       `UPDATE episodes
           SET cloudflare_video_uid = ?, cloudflare_ready = 1, duration_seconds = ?,
               thumbnail_url = NULL, cloudflare_thumbnail_time_ms = ?,
-              status = IF(status = 'processing', 'draft', status),
+              status = IF(publish_when_ready, 'live', IF(status = 'processing', 'draft', status)), publish_when_ready = FALSE,
               cloudflare_pending_uid = NULL, cloudflare_upload_state = NULL, cloudflare_upload_error = NULL
         WHERE ${currentUpload}`,
       [video.uid, video.durationSeconds, video.thumbnailTimeMs, video.uid, video.uid],

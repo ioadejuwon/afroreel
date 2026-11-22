@@ -6,7 +6,7 @@ import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import { config } from "./config";
 import { pool } from "./db";
 import { analyticsReport, listRecords, recordDetail, setAccountAccess, userDirectory, userProfile } from "./admin-reports";
-import { episodeAccess, episodeDefaults, saveEpisodeDefaults } from "./admin-settings";
+import { seriesEpisodeAccess, episodeAccess, episodeDefaults, saveEpisodeDefaults } from "./admin-settings";
 import { createMobileUser, findCurrentMobileUser, rotateMobileRefreshToken } from "./auth";
 import { unlockEpisode } from "./content";
 
@@ -68,6 +68,10 @@ describe.skipIf(!fixture.socket)("admin studio reports and operations", () => {
     expect(episodeAccess(defaults,5,{})).toEqual({isFree:true,coinCost:0});
     expect(episodeAccess(defaults,6,{})).toEqual({isFree:false,coinCost:5});
     await saveEpisodeDefaults("2","12");
+    expect(await seriesEpisodeAccess(1, 99, {})).toEqual({isFree:true,coinCost:0});
+    await pool.query("UPDATE series SET default_episode_access='locked' WHERE id=1");
+    expect(await seriesEpisodeAccess(1, 1, {})).toEqual({isFree:false,coinCost:12});
+    expect(await seriesEpisodeAccess(1, 1, {access:"free"})).toEqual({isFree:true,coinCost:0});
     expect(episodeAccess(await episodeDefaults(),3,{})).toEqual({isFree:false,coinCost:12});
     expect(episodeAccess(defaults,5,{access:"locked",coinCost:8})).toEqual({isFree:false,coinCost:8});
     expect(episodeAccess(defaults,6,{access:"free",coinCost:8})).toEqual({isFree:true,coinCost:0});

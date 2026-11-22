@@ -1,0 +1,12 @@
+<% const detail = adminPath + '/series/' + item.series_id, live = item.status === 'live', cover = posterUrl(item, 'adminpreview'); %>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="<%= adminPath %>/series">Series</a> / <span><%= item.title %></span></nav>
+<article class="show-hero">
+  <div class="show-cover"><% if (cover) { %><img src="<%= cover %>" alt=""><% } %></div>
+  <div class="show-heading"><h1><%= item.title %> <span class="show-badge <%= item.status %>" data-status-label><%= live ? 'Live' : 'Draft' %></span></h1>
+  <p><%= item.episode_count %> episode<%= Number(item.episode_count) === 1 ? '' : 's' %><%= item.synopsis ? ' · ' + item.synopsis : '' %></p></div>
+  <form method="post" action="<%= adminPath %>/series/<%= item.id %>/status" data-status-form data-entity-type="series">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="status" value="<%= live ? 'draft' : 'live' %>">
+    <button class="ghost-button" data-status-button><%= live ? 'Move to draft' : 'Publish' %></button>
+  </form>
+</article>
+<nav class="show-tabs" aria-label="Series sections"><a href="<%= detail %>" <%- editing ? '' : 'aria-current="page"' %>>Episodes · <%= item.episode_count %></a><a href="<%= detail %>/edit" <%- editing ? 'aria-current="page"' : '' %>>Series details</a></nav>

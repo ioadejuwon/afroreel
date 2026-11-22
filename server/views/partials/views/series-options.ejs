@@ -1,0 +1,3 @@
+<fieldset class="choice"><legend><%= label %></legend><div><% for (const [value, caption] of options) { %>
+<label><input type="radio" name="<%= name %>" value="<%= value %>" <%= value === current ? 'checked' : '' %>><span><%= caption %></span></label>
+<% } %></div><% if (hint) { %><small><%= hint %></small><% } %></fieldset>

@@ -61,7 +61,7 @@
       <select name="seriesId" required>
         <option value="">Choose series</option>
         <% series.forEach((item) => { %>
-          <option value="<%= item.id %>"><%= item.title %></option>
+          <option value="<%= item.id %>" data-access="<%= item.default_episode_access %>"><%= item.title %></option>
         <% }) %>
       </select>
     </label>

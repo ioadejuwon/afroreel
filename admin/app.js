@@ -141,24 +141,83 @@ window.addEventListener("click", event => {
   }
 });
 
-const deleteDialog = library?.querySelector(".delete-dialog");
+const deleteDialog = document.querySelector(".delete-dialog");
 let deleteTrigger;
-library?.querySelectorAll("[data-delete-series]").forEach(button => {
+let draftForm;
+document.querySelectorAll("[data-delete-series]").forEach(button => {
   button.addEventListener("click", () => {
-    const count = Number(button.dataset.episodes);
-    const title = button.closest("article").querySelector("h2").textContent;
+    const {title, episodes, deleteSeries} = button.dataset;
     const menu = button.closest("details");
-    deleteTrigger = menu.querySelector("summary");
-    menu.open = false;
-    deleteDialog.querySelector("form").action = button.dataset.deleteSeries;
-    deleteDialog.querySelector('[name="expectedEpisodes"]').value = count;
-    deleteDialog.querySelector("#delete-impact").textContent =
-      `Permanently delete “${title}” and its ${count} episode${count === 1 ? "" : "s"}? This also removes linked unlocks, watch progress, reactions, and comments. Unused videos, posters, and previews will be deleted from Cloudflare.`;
+    deleteTrigger = menu?.querySelector("summary") || button;
+    if (menu) menu.open = false;
+    draftForm = (button.closest(".series-card") || document.querySelector(".show-hero"))?.querySelector("[data-status-form]");
+    const form = deleteDialog.querySelector("form");
+    form.reset();
+    form.action = deleteSeries;
+    form.elements.expectedEpisodes.value = episodes;
+    form.elements.confirmationTitle.placeholder = title;
+    form.querySelector('[type="submit"]').disabled = true;
+    form.querySelector("[data-draft-alternative]").hidden = draftForm?.elements.status.value !== "draft";
+    form.querySelector("h2").textContent = `Delete “${title}”?`;
+    form.querySelector("#delete-impact").textContent = `This permanently removes the series and its ${episodes} episode${episodes === "1" ? "" : "s"}, including linked viewing activity. Unused videos and posters will be deleted. This can’t be undone.`;
     deleteDialog.showModal();
   });
 });
+deleteDialog?.addEventListener("input", () => {
+  const input = deleteDialog.querySelector("[name=confirmationTitle]");
+  deleteDialog.querySelector('[type="submit"]').disabled = input.value !== input.placeholder;
+});
+deleteDialog?.querySelector(".text-action").addEventListener("click", () => {
+  deleteDialog.close();
+  draftForm?.requestSubmit();
+});
 deleteDialog?.querySelector("[data-cancel-delete]").addEventListener("click", () => deleteDialog.close());
 deleteDialog?.addEventListener("close", () => deleteTrigger?.focus());
+
+document.querySelectorAll("[data-tags]").forEach(field => {
+  const tags = [...new Set(field.value.split(",").map(tag => tag.trim()).filter(Boolean))];
+  const entry = document.createElement("input");
+  entry.placeholder = "Add a tag";
+  entry.setAttribute("aria-label", "Add a tag");
+  const group = document.createElement("div");
+  group.className = "tags-input";
+  field.type = "hidden";
+  field.closest("label").after(group);
+  group.append(entry);
+  function render() {
+    group.querySelectorAll("button").forEach(button => button.remove());
+    tags.forEach((tag, index) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.textContent = tag + " ×";
+      chip.setAttribute("aria-label", "Remove " + tag);
+      chip.onclick = () => { tags.splice(index, 1); render(); entry.focus(); };
+      group.insertBefore(chip, entry);
+    });
+    field.value = tags.join(", ");
+  }
+  function commit() {
+    const values = [...new Set([...tags, ...entry.value.split(",").map(tag => tag.trim()).filter(Boolean)])];
+    if ([...values.join(", ")].length > 255) {
+      entry.setCustomValidity("Use 255 characters or fewer for all tags.");
+      entry.reportValidity();
+      return;
+    }
+    tags.splice(0, tags.length, ...values);
+    entry.value = "";
+    render();
+  }
+  entry.addEventListener("keydown", event => {
+    if (!event.isComposing && ["Enter", ","].includes(event.key)) { event.preventDefault(); commit(); }
+  });
+  entry.addEventListener("input", () => entry.setCustomValidity(""));
+  entry.addEventListener("blur", commit);
+  field.form.addEventListener("submit", event => {
+    commit();
+    if (!entry.validity.valid) { event.preventDefault(); event.stopImmediatePropagation(); }
+  });
+  render();
+});
 
 document.querySelectorAll("[data-poster-form]").forEach((form) => {
   const fileInput = form.querySelector("[data-poster-file]");
@@ -167,6 +226,7 @@ document.querySelectorAll("[data-poster-form]").forEach((form) => {
   const preview = form.querySelector("[data-poster-preview]");
   const status = form.querySelector("[data-poster-status]");
   const button = form.querySelector('button[type="submit"]');
+  form.querySelector("[data-replace-poster]")?.addEventListener("click", () => fileInput.click());
   let posterPreviewUrl = "";
   let uploadedImageId = "";
 
@@ -197,23 +257,25 @@ document.querySelectorAll("[data-poster-form]").forEach((form) => {
 
   form.addEventListener("submit", async (event) => {
     const file = fileInput?.files?.[0];
-    if (!file || !button) return;
+    if (!button) return;
+    const payload = Object.fromEntries(new FormData(form, event.submitter));
     event.preventDefault();
     if (button.disabled) return;
 
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    if (file && !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       setStatus(status, "Choose a JPEG, PNG, or WebP poster.");
       return;
     }
-    if (!file.size || file.size > 10 * 1000 * 1000) {
+    if (file && (!file.size || file.size > 10 * 1000 * 1000)) {
       setStatus(status, "Choose a poster that is 10 MB or smaller.");
       return;
     }
 
-    button.disabled = true;
+    const actions = form.querySelectorAll('[type="submit"]');
+    actions.forEach(action => { action.disabled = true; });
     fileInput.disabled = true;
     try {
-      if (!uploadedImageId) {
+      if (file && !uploadedImageId) {
         setStatus(status, "Uploading poster to Cloudflare…");
         const upload = await postJson(appUrl("/admin/api/cloudflare/image-upload-url"), {});
         const imageBody = new FormData();
@@ -227,16 +289,16 @@ document.querySelectorAll("[data-poster-form]").forEach((form) => {
         if (!response.ok || result?.success === false) throw new Error("Cloudflare could not upload the poster.");
         uploadedImageId = upload.id;
       }
-      setStatus(status, "Verifying poster…");
+      setStatus(status, file ? "Verifying poster…" : "Saving series…");
       const saved = await postJson(form.action, {
-        ...Object.fromEntries(new FormData(form)),
+        ...payload,
         posterImageId: uploadedImageId,
       });
       window.location.assign(saved.redirectTo);
     } catch (error) {
       setStatus(status, error instanceof Error ? error.message : "Poster upload failed.");
     } finally {
-      button.disabled = false;
+      actions.forEach(action => { action.disabled = false; });
       fileInput.disabled = false;
     }
   });
@@ -263,7 +325,11 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
     dropzone?.addEventListener(eventName, () => dropzone.classList.remove("is-dragging"));
   });
 
-  button.addEventListener("click", async () => {
+  if (button.hasAttribute("data-pick-video")) {
+    button.addEventListener("click", () => { input.value = ""; input.click(); });
+    input.addEventListener("change", () => { if (input.files.length) upload(); });
+  } else button.addEventListener("click", upload);
+  async function upload() {
     const status = item?.querySelector("[data-upload-status]");
     const refreshButton = item?.querySelector("[data-refresh-video]");
     const file = input?.files?.[0];
@@ -301,7 +367,7 @@ document.querySelectorAll("[data-upload-video]").forEach((button) => {
       button.disabled = false;
       input.disabled = false;
     }
-  });
+  }
 });
 
 document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
@@ -309,18 +375,19 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
   const fileName = form.querySelector("[data-create-video-file-name]");
   const dropzone = form.querySelector("[data-video-create-dropzone]");
   const status = form.querySelector("[data-create-episode-status]");
-  const button = form.querySelector('button[type="submit"]');
   let draftEpisode;
   const number = form.elements.episodeNumber;
   const access = form.elements.access;
   function updateAccess() {
-    const hasNumber = number.valueAsNumber > 0;
-    const freeByDefault = hasNumber && number.valueAsNumber <= Number(access.dataset.freeOpening);
-    access.options[0].textContent = "Use series default" + (hasNumber ? (freeByDefault ? " · Free" : " · Locked") : "");
-    form.elements.coinCost.disabled = access.value === "free" || (access.value === "default" && freeByDefault);
+    const series = form.elements.seriesId;
+    const inherited = form.dataset.seriesAccess || series.selectedOptions?.[0]?.dataset.access;
+    if (access.options) access.options[0].textContent = inherited ? "Series default · " + (inherited === "free" ? "Free" : "Locked") : "Choose a series";
+    const preview = document.querySelector("[data-number-preview]");
+    if (preview) preview.textContent = number.value;
+    form.elements.coinCost.disabled = access.value === "free" || (access.value === "default" && inherited === "free");
   }
+  form.addEventListener("change", updateAccess);
   number.addEventListener("input", updateAccess);
-  access.addEventListener("change", updateAccess);
   updateAccess();
 
 
@@ -342,19 +409,20 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
   form.addEventListener("submit", async (event) => {
     const file = input?.files?.[0];
 
-    if (!file) {
-      return;
-    }
-
     event.preventDefault();
-    if (button) {
-      button.disabled = true;
-    }
+    const data = Object.fromEntries(new FormData(form, event.submitter));
+    if (file && data.intent === "add") data.intent = "publish-when-ready";
+    const actions = form.querySelectorAll('[type="submit"]');
+    actions.forEach(action => { action.disabled = true; });
     setStatus(status, draftEpisode ? "Preparing video upload…" : "Creating episode…");
 
     try {
       if (!draftEpisode) {
-        draftEpisode = await postJson(form.action, Object.fromEntries(new FormData(form)));
+        draftEpisode = await postJson(form.action, data);
+      }
+      if (!file) {
+        window.location.assign(draftEpisode.redirectTo);
+        return;
       }
       const video = await uploadCloudflareVideoWithProgress(
         draftEpisode.episodeId,
@@ -369,9 +437,12 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Episode creation failed.";
       setStatus(status, draftEpisode ? `Episode saved. ${message}` : message);
-      if (button) {
-        button.disabled = false;
-      }
+      if (draftEpisode) {
+        const link = document.createElement("a");
+        link.href = draftEpisode.redirectTo;
+        link.textContent = "Manage episode and retry upload";
+        status.append(" ", link);
+      } else actions.forEach(action => { action.disabled = false; });
     }
   });
 });
@@ -436,6 +507,8 @@ document.querySelectorAll("[data-status-form]").forEach((form) => {
         document.querySelectorAll('[data-entity-type="series"]').forEach(other => {
           if (other.action === form.action) updateStatusForm(other, status, entityType);
         });
+        const current = document.querySelector(`.fields-pane input[name="status"][value="${status}"]`);
+        if (current) current.checked = true;
         refreshLibrary();
         if (form.closest("[hidden]")) library?.querySelector('[data-filter][aria-current="page"]')?.focus();
         setStatus(library?.querySelector("[data-library-feedback]"), status === "live" ? "Series published." : "Series moved to draft.");
@@ -489,7 +562,7 @@ function updateStatusForm(form, status, entityType) {
   const statusInput = form.querySelector('input[name="status"]');
   const statusButton = form.querySelector("[data-status-button]");
   const article = form.closest("article");
-  const nextStatus = status === "live" ? "draft" : "live";
+  const nextStatus = status === "draft" ? "live" : "draft";
 
   if (statusInput) {
     statusInput.value = nextStatus;
@@ -497,14 +570,14 @@ function updateStatusForm(form, status, entityType) {
 
   if (article?.hasAttribute("data-series-status")) article.dataset.seriesStatus = status;
   article?.querySelectorAll("[data-status-label]").forEach(statusLabel => {
-    statusLabel.textContent = entityType === "series" ? (status === "live" ? "Published" : "Draft") : status;
+    statusLabel.textContent = entityType === "series" ? (status === "live" ? (article.classList.contains("show-hero") ? "Live" : "Published") : "Draft") : status;
     statusLabel.classList.remove("live", "draft", "review", "blocked");
     statusLabel.classList.add(status === "processing" ? "review" : status);
   });
 
   if (statusButton) {
     const label = statusButton.querySelector("span") || statusButton;
-    label.textContent = status === "live" ? (entityType === "series" ? "Move to draft" : "Draft") : "Publish";
+    label.textContent = nextStatus === "draft" ? (entityType === "series" ? "Move to draft" : "Draft") : "Publish";
     statusButton.querySelector("use")?.setAttribute("href", status === "live" ? "#i-draft" : "#i-publish");
   }
 }
@@ -516,7 +589,8 @@ function updateVideoCard(item, video) {
   const refreshButton = item.querySelector("[data-refresh-video]");
   if (refreshButton) refreshButton.disabled = !video.canRefresh;
   const uploadButton = item.querySelector("[data-upload-video]");
-  if (uploadButton) uploadButton.textContent = video.activeReady ? "Replace video" : "Upload";
+  if (uploadButton) uploadButton.textContent = video.activeReady ? "Replace video" : "Upload video";
+  item.querySelector("[data-video-state]").dataset.state = video.state;
   const publishForm = item.querySelector("[data-status-form]");
   if (publishForm) updateStatusForm(publishForm, video.status, "episode");
 }

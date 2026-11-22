@@ -1,10 +1,9 @@
 <section class="view active admin-report" id="settings" aria-labelledby="settings-title">
-  <header class="library-heading"><div><h1 id="settings-title">Settings</h1><p>Set the starting access and price for new episodes.</p></div></header>
+  <header class="library-heading"><div><h1 id="settings-title">Settings</h1><p>Set the default price for locked episodes.</p></div></header>
   <section class="dashboard-panel report-panel settings-panel"><header><h2>Episode defaults</h2></header>
     <form method="post" action="<%= adminPath %>/settings" class="defaults-form">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>"/>
-      <label>Free opening episodes per series<input name="freeOpening" type="number" min="0" max="4294967295" required value="<%= defaults.free_opening_episodes %>" />
-        <small>Episode numbers 1 through this number default to free. Enter 0 to default every episode to locked.</small></label>
+      <input type="hidden" name="freeOpening" value="<%= defaults.free_opening_episodes %>" />
       <label>Default locked episode price (coins)<input name="lockedPrice" type="number" min="0" max="4294967295" required value="<%= defaults.locked_coin_price %>" />
         <small>You can override access and price when adding an episode.</small></label>
       <% if (formError) { %><p class="form-error" role="alert"><%= formError %></p><% } %>

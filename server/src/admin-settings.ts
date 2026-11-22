@@ -24,6 +24,17 @@ export async function saveEpisodeDefaults(free: unknown, price: unknown) {
     [wholeNumber(free, "free opening episodes"), wholeNumber(price, "coin price")]);
 }
 
+export async function seriesEpisodeAccess(seriesId: number, episodeNumber: number, body: Record<string, unknown>) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    "SELECT default_episode_access FROM series WHERE id = ?", [seriesId],
+  );
+  if (!rows[0]) throw new MediaError(400, "Choose an existing series.");
+  const access = body.access === "default" || !body.access
+    ? (body.isFree === "on" ? "free" : rows[0].default_episode_access)
+    : body.access;
+  return episodeAccess(await episodeDefaults(), episodeNumber, { ...body, access });
+}
+
 export function episodeAccess(defaults: EpisodeDefaults, number: number, body: Record<string, unknown>) {
   const choice = body.access ?? (body.isFree === "on" ? "free" : "default");
   if (!["free", "locked", "default"].includes(String(choice))) throw new MediaError(400, "Choose a valid access rule.");

@@ -1,0 +1,7 @@
+<dialog class="delete-dialog" aria-labelledby="delete-heading" aria-describedby="delete-impact">
+<form method="post"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="expectedEpisodes">
+<svg class="warning-icon icon" aria-hidden="true"><use href="#i-warning"/></svg>
+<h2 id="delete-heading">Delete series?</h2><p id="delete-impact"></p>
+<label>Type the series name to confirm<input name="confirmationTitle" required autocomplete="off" autofocus></label>
+<p data-draft-alternative>Just want to hide it? <button type="button" class="text-action">Move to draft instead</button></p>
+<div class="dialog-actions"><button class="ghost-button" type="button" data-cancel-delete>Cancel</button><button class="danger-button" type="submit" disabled>Delete series</button></div></form></dialog>

@@ -1,135 +1,16 @@
-<section class="view<%= initialView === 'series-detail' ? ' active' : '' %>" id="series-detail" aria-label="Series detail">
-  <% if (!selectedSeries) { %>
-    <article class="empty-card">Series not found.</article>
-  <% } else { %>
-    <% const nextEpisode = selectedEpisodes.reduce((max, ep) => Math.max(max, ep.episode_number), 0) + 1; const previewUrl = posterUrl(selectedSeries, "adminpreview"); %>
-    <div class="library-heading section-head split-head">
-      <div>
-        <h1><%= selectedSeries.title %></h1>
-        <span class="section-note"><%= selectedEpisodes.length %> episode<%= selectedEpisodes.length === 1 ? '' : 's' %> in this series.</span>
-      </div>
-      <a class="ghost-button" href="<%= basePath %>/admin/series">Back to Series</a>
-    </div>
-
-    <article class="panel series-detail-panel">
-      <div class="series-detail-summary">
-        <% if (previewUrl) { %>
-          <img class="poster series-manage-poster" src="<%= previewUrl %>" alt="" />
-        <% } else { %>
-          <div class="poster series-manage-poster"></div>
-        <% } %>
-        <div>
-          <div class="panel-header">
-            <div>
-              <h2><%= selectedSeries.title %></h2>
-              <span><span data-status-label><%= selectedSeries.status %></span> · <%= selectedSeries.episode_count %> episodes</span>
-            </div>
-            <form class="inline-form" method="post" action="<%= basePath %>/admin/series/<%= selectedSeries.id %>/status" data-status-form data-entity-type="series">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <input type="hidden" name="status" value="<%= selectedSeries.status === 'live' ? 'draft' : 'live' %>" />
-              <button class="ghost-button" type="submit" data-status-button><%= selectedSeries.status === 'live' ? 'Move to Draft' : 'Publish' %></button>
-            </form>
-          </div>
-          <% if (selectedSeries.synopsis) { %>
-            <p class="series-detail-synopsis"><%= selectedSeries.synopsis %></p>
-          <% } %>
-        </div>
-      </div>
-      <form class="poster-replace-form" method="post" action="<%= basePath %>/admin/series/<%= selectedSeries.id %>/poster" data-poster-form>
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-        <%- include("poster-upload-field", { label: "New poster", required: true }) %>
-        <div class="poster-replace-actions">
-          <button class="ghost-button" type="submit">Replace poster</button>
-          <span class="form-status" role="status" data-poster-status></span>
-        </div>
-      </form>
-    </article>
-
-    <article class="panel upload-panel">
-      <div class="panel-header">
-        <h2>Episodes</h2>
-        <span>Under <%= selectedSeries.title %></span>
-      </div>
-
-      <% if (selectedEpisodes.length === 0) { %>
-        <div class="empty-card">No episodes yet.</div>
-      <% } else { %>
-        <div class="episode-upload-list">
-          <% selectedEpisodes.forEach((episode) => { %>
-            <% const video = videoUploadResponse(episode); %>
-            <article class="episode-upload-card" id="episode-<%= episode.id %>" tabindex="-1" data-episode-id="<%= episode.id %>" data-video-uid="<%= video.uid || '' %>">
-              <div class="episode-main">
-                <span class="episode-kicker">Ep <%= episode.episode_number %></span>
-                <strong><%= episode.title %></strong>
-                <div class="episode-meta">
-                  <span><%= episode.is_free ? 'Free' : 'Locked' %></span>
-                  <span><%= episode.is_free ? 0 : episode.coin_cost %> coins</span>
-                  <span data-video-state><%= video.label %></span>
-                  <span class="status <%= episode.status === 'processing' ? 'review' : episode.status %>" data-status-label><%= episode.status %></span>
-                </div>
-              </div>
-              <%- include("episode-upload-controls", { video, episode }) %>
-              <div class="series-episode-actions">
-                <form method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/status" data-status-form data-entity-type="episode">
-                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                  <input type="hidden" name="returnTo" value="series-detail" />
-                  <input type="hidden" name="seriesId" value="<%= selectedSeries.id %>" />
-                  <input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>" />
-                  <input type="hidden" name="status" value="<%= episode.status === 'live' ? 'draft' : 'live' %>" />
-                  <button class="ghost-button" type="submit" data-status-button><%= episode.status === 'live' ? 'Draft' : 'Publish' %></button>
-                </form>
-                <form method="post" action="<%= basePath %>/admin/episodes/<%= episode.id %>/delete" data-delete-episode-form>
-                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                  <input type="hidden" name="returnTo" value="series-detail" />
-                  <input type="hidden" name="seriesId" value="<%= selectedSeries.id %>" />
-                  <input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>" />
-                  <button class="ghost-button danger-button" type="submit">Remove</button>
-                </form>
-              </div>
-            </article>
-          <% }) %>
-        </div>
-      <% } %>
-    </article>
-
-    <form class="panel content-form episode-composer" method="post" action="<%= basePath %>/admin/episodes" data-episode-create-form>
-      <div class="form-intro span-2">
-        <p class="eyebrow">Add</p>
-        <h3>Episode details</h3>
-      </div>
-      <% if (episodeFormError) { %>
-        <div class="form-error span-2"><%= episodeFormError %></div>
-      <% } %>
-      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-      <input type="hidden" name="seriesId" value="<%= selectedSeries.id %>" />
-      <input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>" />
-      <input type="hidden" name="returnTo" value="series-detail" />
-      <label>
-        <span>Episode number</span>
-        <input type="number" name="episodeNumber" min="1" value="<%= nextEpisode %>" required />
-      </label>
-      <label>
-        <span>Title</span>
-        <input name="title" required placeholder="The Photograph" />
-      </label>
-    <%- include("episode-access", { number: nextEpisode }) %>
-      <label class="span-2">
-        <span>Hook</span>
-        <textarea name="hook" rows="3" placeholder="The one-line cliffhanger."></textarea>
-      </label>
-      <label>
-        <span>Release date</span>
-        <input type="date" name="releaseDate" />
-      </label>
-
-      <label class="span-2 video-create-dropzone" data-video-create-dropzone>
-        <input type="file" accept="video/*" data-create-video-file required />
-        <span>Video file</span>
-        <strong data-create-video-file-name>Drop video here or choose file</strong>
-        <em>MP4 or supported video file</em>
-      </label>
-      <span class="span-2 form-status" role="status" data-create-episode-status></span>
-      <button class="primary-button" type="submit">Add Episode</button>
-    </form>
-  <% } %>
-</section>
+<section class="view active studio-page">
+<% if (!selectedSeries) { %><p class="empty-card">Series not found.</p><% } else { %>
+<%- include("series-hero",{item:selectedSeries, editing:false}) %>
+<section class="studio-panel episodes-pane"><header><h2>Episodes</h2><a class="primary-button" href="<%= adminPath %>/series/<%= selectedSeries.series_id %>/episodes/new"><svg class="icon"><use href="#i-plus"/></svg>Add episode</a></header>
+<% if (!selectedEpisodes.length) { %><p class="empty-card">No episodes yet.</p><% } %>
+<% for (const episode of selectedEpisodes) { const video = videoUploadResponse(episode), path = adminPath + '/episodes/' + episode.id; %>
+<article class="studio-episode" id="episode-<%= episode.id %>" tabindex="-1" data-episode-id="<%= episode.id %>" data-video-uid="<%= video.uid || '' %>">
+<span class="episode-num"><%= episode.episode_number %></span><div class="episode-name"><strong><%= episode.title %></strong><small data-video-state data-state="<%= video.state %>"><%= video.label %></small></div>
+<span><%= episode.is_free ? 'Free' : 'Locked · ' + episode.coin_cost + ' coins' %></span>
+<span class="show-badge <%= episode.status %>" data-status-label><%= episode.status %></span>
+<input type="file" accept="video/*" data-video-file hidden><button class="<%= video.activeReady ? 'primary-button' : 'ghost-button' %>" type="button" data-upload-video data-pick-video><%= video.activeReady ? 'Replace video' : 'Upload video' %></button>
+<details class="card-menu" name="episode-actions"><summary aria-label="Actions for <%= episode.title %>"><svg class="icon"><use href="#i-more"/></svg></summary><div class="card-menu-items">
+<button type="button" data-refresh-video <%= video.canRefresh ? '' : 'disabled' %>>Refresh status</button>
+<form method="post" action="<%= path %>/status" data-status-form data-entity-type="episode"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="returnTo" value="series-detail"><input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>"><input type="hidden" name="status" value="<%= episode.status === 'draft' ? 'live' : 'draft' %>"><button data-status-button><%= episode.status === 'draft' ? 'Publish' : 'Move to draft' %></button></form>
+<form method="post" action="<%= path %>/delete" data-delete-episode-form><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="delete-series">Delete episode</button></form></div></details>
+<small class="row-feedback" role="status" data-upload-status><%= video.error || '' %></small></article><% } %></section><% } %></section>

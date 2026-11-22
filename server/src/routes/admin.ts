@@ -31,7 +31,7 @@ import {
 } from "../cloudflare";
 import { allowLocalMedia, config } from "../config";
 import { analyticsReport, ledgerName, ledgers, listRecords, recordDetail, setAccountAccess, userDirectory, userProfile } from "../admin-reports";
-import { episodeAccess, episodeDefaults, saveEpisodeDefaults } from "../admin-settings";
+import { seriesEpisodeAccess, episodeDefaults, saveEpisodeDefaults } from "../admin-settings";
 import { coinProducts } from "../commerce";
 import { buildDashboardCatalog, buildUploadList, getDashboardAudience } from "../dashboard";
 import { posterUrl, videoUploadResponse } from "../media";
@@ -67,7 +67,7 @@ async function renderAdmin(req: Request, res: Response, options: {
   const [series, episodes, audience, defaults] = await Promise.all([
     needsSeries ? listSeries(true) : [], listEpisodes(true),
     initialView === "dashboard" ? getDashboardAudience() : null,
-    ["episodes", "series-detail", "settings"].includes(initialView) ? episodeDefaults() : null,
+    ["episodes", "series-episode-new", "settings"].includes(initialView) ? episodeDefaults() : null,
   ]);
   const query = req.query;
   const stringParam = (key: string) => typeof query[key] === "string" ? query[key] : "";
@@ -213,6 +213,10 @@ adminRouter.get("/series/:seriesId", requireAdmin, async (req, res, next) => {
   }
 });
 
+adminRouter.get("/series/:seriesId/episodes/new", requireAdmin, async (req, res) => {
+  await renderAdmin(req, res, { initialView: "series-episode-new", seriesDetailId: String(req.params.seriesId) });
+});
+
 for (const page of ["edit", "preview"]) {
   adminRouter.get(`/series/:seriesId/${page}`, requireAdmin, async (req, res) => {
     await renderAdmin(req, res, { initialView: `series-${page}`, seriesDetailId: String(req.params.seriesId) });
@@ -275,7 +279,9 @@ async function seriesDetails(req: Request) {
   if (!title || [...title].length > 190) throw new MediaError(400, "Enter a series title of 1 to 190 characters.");
   if ([...genres].length > 255) throw new MediaError(400, "Genres must be 255 characters or fewer.");
   const posterImageId = stringBody(req.body.posterImageId) || null;
-  return { title, genres, synopsis: stringBody(req.body.synopsis), posterImageId };
+  const access = req.body.defaultEpisodeAccess;
+  if (access !== undefined && access !== "free" && access !== "locked") throw new MediaError(400, "Choose Free or Locked.");
+  return { title, defaultEpisodeAccess: access, genres, synopsis: stringBody(req.body.synopsis), posterImageId };
 }
 
 adminRouter.post("/series", requireAdmin, async (req, res, next) => {
@@ -288,7 +294,7 @@ adminRouter.post("/series", requireAdmin, async (req, res, next) => {
     const series = await createSeries({
       ...details,
       posterUrl: !details.posterImageId && posterData ? await savePosterDataUrl(posterData) : null,
-      status: enumBody<SeriesStatus>(req.body.status, ["draft", "live"], "draft"),
+      status: req.body.intent === "draft" ? "draft" : enumBody<SeriesStatus>(req.body.status, ["draft", "live"], "draft"),
     });
 
     const redirectTo = adminPath(req, `/series/${series.seriesId}`);
@@ -303,8 +309,11 @@ adminRouter.post("/series", requireAdmin, async (req, res, next) => {
 });
 
 adminRouter.post("/series/:seriesId/edit", requireAdmin, async (req, res) => {
-  await editSeries(Number(req.params.seriesId), await seriesDetails(req));
-  const redirectTo = adminViewPath(req, "series");
+  await editSeries(Number(req.params.seriesId), {
+    ...await seriesDetails(req),
+    status: req.body.status === undefined ? undefined : enumBody<SeriesStatus>(req.body.status, ["live", "draft"], "draft"),
+  });
+  const redirectTo = adminPath(req, `/series/${Number(req.params.seriesId)}/edit?saved=1`);
   if (wantsJson(req)) res.json({ redirectTo });
   else res.redirect(303, redirectTo);
 });
@@ -317,7 +326,7 @@ adminRouter.post("/series/:seriesId/duplicate", requireAdmin, async (req, res) =
 adminRouter.post("/series/:seriesId/delete", requireAdmin, async (req, res) => {
   const count = stringBody(req.body.expectedEpisodes);
   if (!/^\d+$/.test(count)) throw new MediaError(400, "Confirm the episode count before deleting.");
-  await deleteSeries(Number(req.params.seriesId), Number(count));
+  await deleteSeries(Number(req.params.seriesId), Number(count), typeof req.body.confirmationTitle === "string" ? req.body.confirmationTitle : "");
   res.redirect(303, adminViewPath(req, "series"));
 });
 
@@ -355,7 +364,7 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
       await renderAdmin(req, res, {
         status: 400,
         episodeFormError: "Series, episode number, and title are required.",
-        initialView: returnTo === "series-detail" ? "series-detail" : "episodes",
+        initialView: returnTo === "series-detail" ? "series-episode-new" : "episodes",
         seriesDetailId: returnTo === "series-detail" ? String(seriesId) : undefined,
       });
       return;
@@ -366,9 +375,10 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
       episodeNumber,
       title,
       hook: stringBody(req.body.hook),
-      ...episodeAccess(await episodeDefaults(), episodeNumber, req.body),
+      ...await seriesEpisodeAccess(seriesId, episodeNumber, req.body),
       releaseDate: stringBody(req.body.releaseDate) || null,
-      status: enumBody<EpisodeStatus>(req.body.status, ["draft", "processing"], "draft"),
+      publishWhenReady: req.body.intent === "publish-when-ready",
+      status: req.body.intent === "publish-when-ready" ? "processing" : enumBody<EpisodeStatus>(req.body.status, ["draft", "processing"], "draft"),
     });
 
     const returnTo = stringBody(req.body.returnTo);
@@ -388,7 +398,7 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
 
     res.redirect(redirectTo);
   } catch (error) {
-    const message = episodeCreateErrorMessage(error);
+    const message = error instanceof MediaError && error.status === 400 ? error.message : episodeCreateErrorMessage(error);
     if (message) {
       if (wantsJson(req)) {
         res.status(400).json({ error: message });
@@ -399,7 +409,7 @@ adminRouter.post("/episodes", requireAdmin, async (req, res, next) => {
       await renderAdmin(req, res, {
         status: 400,
         episodeFormError: message,
-        initialView: returnTo === "series-detail" ? "series-detail" : "episodes",
+        initialView: returnTo === "series-detail" ? "series-episode-new" : "episodes",
         seriesDetailId: returnTo === "series-detail" ? String(req.body.seriesId ?? "") : undefined,
       });
       return;

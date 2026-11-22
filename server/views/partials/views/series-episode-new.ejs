@@ -1,0 +1,16 @@
+<section class="view active studio-page"><% if (!selectedSeries) { %><p class="empty-card">Series not found.</p><% } else {
+const detail = adminPath+'/series/'+selectedSeries.series_id, number = selectedEpisodes.reduce((max, ep)=>Math.max(max, ep.episode_number),0)+1, free = selectedSeries.default_episode_access === 'free'; %>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="<%= adminPath %>/series">Series</a> / <a href="<%= detail %>"><%= selectedSeries.title %></a> / <span>Add episode</span></nav>
+<header class="studio-heading"><h1>Add episode</h1><p>Episode <span data-number-preview><%= number %></span> of <%= selectedSeries.title %></p></header>
+<form method="post" action="<%= adminPath %>/episodes" class="studio-grid episode-grid" data-episode-create-form data-series-access="<%= selectedSeries.default_episode_access %>">
+<input type="hidden" name="_csrf" value="<%= csrfToken %>"><input type="hidden" name="seriesId" value="<%= selectedSeries.id %>"><input type="hidden" name="seriesPublicId" value="<%= selectedSeries.series_id %>"><input type="hidden" name="returnTo" value="series-detail">
+<section class="studio-panel fields-pane"><h2>Episode details</h2>
+<% if (episodeFormError) { %><p class="form-error"><%= episodeFormError %></p><% } %>
+<div class="field-pair number-title"><label>Number<input type="number" min="1" required name="episodeNumber" value="<%= number %>"></label><label>Title<input required maxlength="190" name="title" placeholder="The Photograph"></label></div>
+<label>Hook<textarea name="hook" maxlength="500" rows="4" placeholder="The one-line cliffhanger."></textarea></label><small>Shown under the title in the app.</small>
+<%- include('series-options',{label:'Access',name:'access',options:[['default','Series default · '+(free?'Free':'Locked')],['free','Free'],['locked','Locked']],current:'default',hint:''}) %>
+<div class="field-pair"><label>Price (coins)<input name="coinCost" type="number" min="0" max="4294967295" placeholder="<%= defaults.locked_coin_price %>"><small>Only used when the episode is locked.</small></label>
+<label>Release date<input type="date" name="releaseDate"><small>Leave empty to release when published.</small></label></div></section>
+<section class="studio-panel video-pane"><h2>Video</h2><label class="studio-drop" data-video-create-dropzone><input class="file-overlay" type="file" accept="video/*" data-create-video-file aria-label="Choose episode video"><span class="drop-copy"><svg class="icon"><use href="#i-publish"/></svg><strong data-create-video-file-name>Drop a video here</strong><small>MP4 or other supported video file</small><span class="ghost-button">Choose file</span></span></label>
+<p>Add a video to publish when it’s ready, or add the episode now and upload later. Save as draft keeps it unpublished.</p></section>
+<footer class="studio-actions"><span role="status" data-create-episode-status></span><a class="ghost-button" href="<%= detail %>">Cancel</a><button class="ghost-button" type="submit" name="intent" value="draft">Save as draft</button><button class="primary-button" type="submit" name="intent" value="add">Add episode</button></footer></form><% } %></section>

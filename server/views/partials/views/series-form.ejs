@@ -1,40 +1,26 @@
-<section class="view<%= initialView === (editing ? 'series-edit' : 'series-new') ? ' active' : '' %>" id="<%= editing ? 'series-edit' : 'series-new' %>" aria-label="<%= editing ? 'Edit series' : 'Create series' %>">
-  <div class="library-heading section-head split-head">
-    <div>
-      <h1><%= editing ? 'Edit details' : 'Create Series' %></h1>
-      <% if (!editing) { %><span class="section-note">Add a title, metadata, and poster for the app catalog.</span><% } %>
-    </div>
-    <a class="ghost-button" href="<%= adminPath %>/series">Back to Series</a>
-  </div>
-
-  <% if (editing && !item) { %><p class="empty-card">Series not found.</p><% } else { %>
-    <form class="panel content-form series-create-form" method="post" action="<%= adminPath %>/series<%= editing ? '/' + item.id + '/edit' : '' %>" data-poster-form>
-      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-      <%- include("poster-upload-field", { label: "Series poster", required: false, currentCover: editing ? posterUrl(item, "adminpreview") : null }) %>
-      <div class="series-fields">
-        <label>
-          <span>Series name</span>
-          <input name="title" required maxlength="190" value="<%= item?.title || '' %>" placeholder="Lagos Secrets" />
-        </label>
-        <label>
-          <span>Genres / tags</span>
-          <input name="genres" maxlength="255" value="<%= item?.genres || '' %>" placeholder="Romance, Betrayal, Lagos" />
-        </label>
-        <label>
-          <span>Synopsis</span>
-          <textarea name="synopsis" rows="4" placeholder="A short story description for the app."><%= item?.synopsis || '' %></textarea>
-        </label>
-        <div class="series-form-footer">
-          <% if (!editing) { %>
-            <label>
-              <span>Status</span>
-              <select name="status"><option value="draft">Draft</option><option value="live">Live</option></select>
-            </label>
-          <% } %>
-          <span class="form-status" role="status" data-poster-status></span>
-          <button class="primary-button" type="submit"><%= editing ? 'Save changes' : 'Create Series' %></button>
-        </div>
-      </div>
-    </form>
-  <% } %>
-</section>
+<section class="view active studio-page">
+<% if (editing && !item) { %><p class="empty-card">Series not found.</p><% } else { %>
+<% if (editing) { %><%- include("series-hero", {item, editing}) %><% } else { %>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="<%= adminPath %>/series">Series</a> / <span>New series</span></nav>
+<header class="studio-heading"><h1>Create series</h1><p>Add a title, details and a poster for the app catalog.</p></header><% } %>
+<form class="studio-grid <%= editing ? 'edit-grid' : 'create-grid' %>" method="post" action="<%= adminPath %>/series<%= editing ? '/' + item.id + '/edit' : '' %>" data-poster-form>
+<input type="hidden" name="_csrf" value="<%= csrfToken %>">
+<section class="studio-panel poster-pane"><h2>Poster</h2>
+<% const cover = editing && posterUrl(item,'adminpreview'); %>
+<label class="studio-drop poster-drop <%= cover ? 'has-cover' : '' %>" data-poster-dropzone>
+<input class="file-overlay" type="file" accept="image/jpeg,image/png,image/webp" data-poster-file aria-label="<%= editing ? 'Replace poster' : 'Choose poster' %>">
+<% if (cover) { %><img src="<%= cover %>" alt="Current series poster"><% } %><span class="upload-preview" data-poster-preview></span>
+<span class="drop-copy"><svg class="icon"><use href="#i-image"/></svg><strong data-poster-file-name>Drop an image here</strong><small>JPEG, PNG or WebP · 10 MB max · 4:5 works best</small><span class="ghost-button">Choose file</span></span>
+</label><% if (editing) { %><button class="ghost-button" type="button" data-replace-poster>Replace poster</button><% } %>
+<p><%= editing ? 'JPEG, PNG or WebP · 10 MB max. Drop an image on the poster to replace it.' : 'This is the cover people see in the app. You can change it later.' %></p></section>
+<section class="studio-panel fields-pane"><h2><%= editing ? 'Edit series' : 'Details' %></h2>
+<label>Series name<input name="title" required maxlength="190" value="<%= item?.title || '' %>" placeholder="Lagos Secrets"></label>
+<label>Genres and tags<input name="genres" maxlength="255" value="<%= item?.genres || '' %>" placeholder="Add a tag" data-tags></label><small>Press Enter after each tag.</small>
+<label>Synopsis<textarea name="synopsis" rows="5" placeholder="A short story description for the app."><%= item?.synopsis || '' %></textarea></label><small>Shown on the series page in the app.</small>
+<div class="field-pair"><%- include('series-options',{label:'Default episode access',name:'defaultEpisodeAccess',options:[['free','Free'],['locked','Locked']],current:item?.default_episode_access || 'free',hint:'Each episode can override this later.'}) %>
+<%- include('series-options',{label:editing ? 'Status' : 'When to show it',name:'status',options:[['draft','Draft'],['live','Live']],current:item?.status || 'draft',hint:'Draft keeps it hidden from the app.'}) %></div></section>
+<footer class="studio-actions"><% if (editing) { %><button class="ghost-button delete-series" type="button" data-delete-series="<%= adminPath %>/series/<%= item.id %>/delete" data-title="<%= item.title %>" data-episodes="<%= item.episode_count %>">Delete series</button><% } %>
+<span role="status" data-poster-status><%= saved ? 'Changes saved.' : '' %></span><a class="ghost-button" href="<%= adminPath %>/series<%= editing ? '/' + item.series_id : '' %>">Cancel</a>
+<% if (!editing) { %><button class="ghost-button" type="submit" name="intent" value="draft">Save as draft</button><% } %>
+<button class="primary-button" type="submit"><%= editing ? 'Save changes' : 'Create series' %></button></footer></form>
+<% if (editing) { %><%- include('delete-series-dialog') %><% } %><% } %></section>

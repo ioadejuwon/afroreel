@@ -7,16 +7,17 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { pool } from "./db";
 import { episodePreviewId, importEpisodePreview } from "./cloudflare";
 import { applyStreamVideoStatus, beginEpisodeStreamUpload, createEpisode, createSeries, deleteEpisode,
-  deleteSeries, duplicateSeries, getEpisodeMedia, setSeriesPoster } from "./content";
+  deleteSeries, duplicateSeries, editSeries, getEpisodeMedia, setSeriesPoster, setEpisodeStatus } from "./content";
 import { cleanMedia, auditMedia } from "./media-cleanup";
 import { mediaTransaction, queueAssets } from "./media-catalog";
 
 const settings = vi.hoisted(() => ({
   socketPath: process.env.MEDIA_TEST_SOCKET,
+  password: process.env.MEDIA_TEST_PASSWORD ?? "",
   schema: "afroreel_cleanup_test_" + Math.random().toString(16).slice(2),
 }));
 vi.mock("./config", () => ({ allowLocalMedia: false, config: {
-  db: { user: "root", password: "", socketPath: settings.socketPath, database: settings.schema },
+  db: { user: "root", password: settings.password, socketPath: settings.socketPath, database: settings.schema },
   cloudflare: { accountId: "test", customerCode: "example", imagesDeliveryHash: "hash", apiToken: "test", imagesApiToken: "test" },
 } }));
 vi.mock("./cloudflare", async original => ({
@@ -54,7 +55,7 @@ describe.skipIf(!settings.socketPath)("MySQL media cleanup lifecycle", () => {
   let root: mysql.Connection;
   beforeAll(async () => {
     vi.stubGlobal("fetch", request);
-    root = await mysql.createConnection({ user: "root", socketPath: settings.socketPath });
+    root = await mysql.createConnection({ user: "root", password: settings.password, socketPath: settings.socketPath });
     await root.query("CREATE DATABASE " + settings.schema);
     for (const name of (await readdir("database/migrations")).filter(name => name.endsWith(".sql")).sort()) {
       const sql = await readFile("database/migrations/" + name, "utf8");
@@ -67,6 +68,37 @@ describe.skipIf(!settings.socketPath)("MySQL media cleanup lifecycle", () => {
     if (root) {
       await root.query("DROP DATABASE " + settings.schema);
       await root.end();
+    }
+  });
+
+  it("copies series access and preserves episode access when the default changes", async () => {
+    const details = {title: "Locked show", synopsis: "", genres: "Drama", posterImageId: null};
+    const source = await createSeries({...details, posterUrl: null, status: "live", defaultEpisodeAccess: "locked"});
+    await duplicateSeries(source.id);
+    const id = await episode(source.id, 1);
+    await editSeries(source.id, {...details, defaultEpisodeAccess: "free", status: "draft"});
+    const [rows] = await pool.query<mysql.RowDataPacket[]>(
+      "SELECT title, default_episode_access, status FROM series WHERE title IN (?, ?) ORDER BY title",
+      [details.title, "Copy of " + details.title],
+    );
+    expect(rows.map(row => [row.default_episode_access, row.status])).toEqual([["locked", "draft"], ["free", "draft"]]);
+    const [episodes] = await pool.query<mysql.RowDataPacket[]>("SELECT is_free FROM episodes WHERE id = ?", [id]);
+    expect(episodes[0].is_free).toBe(1);
+  });
+
+  it("publishes only requested uploads and honors cancellation before readiness", async () => {
+    const series = await create("Publish on readiness");
+    for (const [index, action] of ["publish", "cancel", "draft"].entries()) {
+      const publish = action !== "draft";
+      const id = await createEpisode({
+        seriesId: series.id, episodeNumber: index + 1, title: action, isFree: true, coinCost: 0,
+        hook: "", releaseDate: null, status: publish ? "processing" : "draft", publishWhenReady: publish,
+      });
+      const uid = video();
+      await beginEpisodeStreamUpload(id, uid, null);
+      if (action === "cancel") await setEpisodeStatus(id, "draft");
+      await ready(uid);
+      expect((await getEpisodeMedia(id))?.status).toBe(action === "publish" ? "live" : "draft");
     }
   });
 
@@ -101,21 +133,22 @@ describe.skipIf(!settings.socketPath)("MySQL media cleanup lifecycle", () => {
     const legacy = await create("Legacy", null, posterUrl("shared", "public"));
     const pending = [video(), video()];
     for (const [i, uid] of pending.entries()) await beginEpisodeStreamUpload(await episode(source.id, i + 1), uid, null);
-    await expect(deleteSeries(source.id, 1)).rejects.toThrow("series changed");
+    await expect(deleteSeries(source.id, 1, "Original")).rejects.toThrow("series changed");
     await cleanMedia();
     expect(pending.some(id => deleted.has(id))).toBe(false);
-    await deleteSeries(source.id, 2);
+    await expect(deleteSeries(source.id, 2, "original")).rejects.toThrow("series changed");
+    await deleteSeries(source.id, 2, "Original");
     await cleanMedia();
     expect(pending.every(id => deleted.has(id))).toBe(true);
     expect(deleted.has("shared")).toBe(false);
-    await deleteSeries(copies[0].id, 0);
+    await deleteSeries(copies[0].id, 0, "Copy of Original");
     await cleanMedia();
     expect(deleted.has("shared")).toBe(false);
     await setSeriesPoster(legacy.id, "new-poster");
     await cleanMedia();
     expect(deleted.has("shared")).toBe(true);
     expect(deleted.has("new-poster")).toBe(false);
-    await deleteSeries(legacy.id, 0);
+    await deleteSeries(legacy.id, 0, "Legacy");
     await cleanMedia();
     expect(deleted.has("new-poster")).toBe(true);
   });
