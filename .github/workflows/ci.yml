@@ -37,6 +37,10 @@ jobs:
 
       - name: Test server
         run: npm test
+        env:
+          # Tests import the application config, which intentionally requires
+          # this secret. This value is only used by the ephemeral CI process.
+          SESSION_SECRET: ci-test-session-secret-not-for-production
 
       - name: Type-check mobile app
         run: npm --prefix mobile run type-check

@@ -30,7 +30,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run type-check && npm test && npm run build
+      - name: Validate server
+        run: npm run type-check && npm test && npm run build
+        env:
+          # The test suite imports the application config before deployment.
+          # Production continues to use the secret stored on the target host.
+          SESSION_SECRET: ci-test-session-secret-not-for-production
       - name: Deploy exact revision through cPanel SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
