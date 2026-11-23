@@ -75,6 +75,33 @@ const url = process.env.PUBLIC_BASE_URL.replace(/\/+$/, '') + '/health/ready';
 })().catch(error => { console.error(error.message); process.exitCode = 1; });
 NODE
 
+# Confirm that the browser receives the JavaScript from this release.
+node --env-file="$app/.env" - "$release" <<'NODE'
+const { createHash } = require('node:crypto');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const release = process.argv[2];
+const script = readFileSync(join(release, 'admin/app.js'));
+const version = createHash('sha256').update(script).digest('hex').slice(0, 16);
+const expected = createHash('sha256').update(script).digest('hex');
+const url = process.env.PUBLIC_BASE_URL.replace(/\/+$/, '') + '/studio-assets/app.' + version + '.js';
+(async () => {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: 'error' });
+      const body = Buffer.from(await response.arrayBuffer());
+      if (response.ok && /javascript/i.test(response.headers.get('content-type') || '') &&
+          createHash('sha256').update(body).digest('hex') === expected) {
+        console.log('Production admin script ready.');
+        return;
+      }
+    } catch { /* Passenger may still be restarting. */ }
+    await new Promise(resolve => setTimeout(resolve, 2500));
+  }
+  throw Error('Production admin script check failed: ' + url);
+})().catch(error => { console.error(error.message); process.exitCode = 1; });
+NODE
+
 # Cron and the audit CLI must resolve the same private release as Passenger.
 media_entry="$app/dist/server/src/run-media.js"
 if [[ -f "$media_entry" ]]; then cp -p "$media_entry" "$release/previous-media-entry.js"; fi

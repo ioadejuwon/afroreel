@@ -38,9 +38,10 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.locals.basePath = defaultBasePath;
 app.locals.adminPath = withBasePath(defaultBasePath, "/admin");
-app.locals.adminScriptVersion = createHash("sha256")
+const adminScriptVersion = createHash("sha256")
   .update(readFileSync(path.join(adminAssetsDir, "app.js")))
   .digest("hex").slice(0, 16);
+app.locals.adminScriptVersion = adminScriptVersion;
 
 app.use((req, res, next) => {
   const basePath = requestBasePath(req.originalUrl);
@@ -52,6 +53,9 @@ app.use((req, res, next) => {
 app.use(requestContext);
 app.use(securityHeaders);
 for (const basePath of basePaths) {
+  app.get(withBasePath(basePath, `/studio-assets/app.${adminScriptVersion}.js`), (_req, res) => {
+    res.type("js").sendFile(path.join(adminAssetsDir, "app.js"));
+  });
   app.use(withBasePath(basePath, "/webhooks"), express.raw({ type: "application/json", limit: "1mb" }), webhookRouter);
 }
 app.use(express.urlencoded({ extended: false, limit: "3mb" }));
