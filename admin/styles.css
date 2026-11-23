@@ -299,6 +299,15 @@ h2 {
   cursor: pointer;
 }
 
+a.primary-button,
+a.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
 .primary-button {
   border: 0;
   background: var(--gold);
