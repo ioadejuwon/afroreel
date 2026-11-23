@@ -17,7 +17,7 @@ function studio(role: AdminRole) {
 describe("studio role gates", () => {
   it.each(["admin","editor","analyst"] as const)("protects team mutations from %s", async role => {
     const app = studio(role);
-    for (const route of ["/team/invite","/team/member/1/access","/team/member/1/remove","/team/invite/2/resend"]) {
+    for (const route of ["/team/member/2/reset","/team/invite","/team/member/1/access","/team/member/1/remove","/team/invite/2/resend"]) {
       await request(app).post("/admin"+route).expect(403);
     }
     await request(app).get("/admin/team").expect(403);

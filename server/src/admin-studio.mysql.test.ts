@@ -11,6 +11,15 @@ import { createMobileUser, findCurrentMobileUser, rotateMobileRefreshToken } fro
 import { unlockEpisode } from "./content";
 import { acceptInvitation, changeMember, emailsFrom, invitationForSetup, resendInvitation, sendInvitation } from "./admin-team";
 
+import bcrypt from "bcryptjs";
+import express from "express";
+import session from "express-session";
+import csrf from "csurf";
+import request from "supertest";
+import { adminRouter } from "./routes/admin";
+import { attachCurrentAdmin, attemptAdminLogin } from "./auth";
+import { requestReset, resetAvailable, redeemReset } from "./studio-password";
+
 const fixture = vi.hoisted(() => ({ socket: process.env.ADMIN_TEST_SOCKET, schema: "afroreel_admin_test_" + Math.random().toString(16).slice(2) }));
 vi.mock("./db", async () => {
   const { config } = await import("./config");
@@ -48,6 +57,7 @@ describe.skipIf(!fixture.socket)("admin studio reports and operations", () => {
     config.nodeEnv = "development";
     config.resend.apiKey = "";
     try {
+      const [actor] = await pool.execute<mysql.ResultSetHeader>("INSERT INTO admins (email,name,password_hash,role) VALUES (?,?,?,?)",["owner@example.test","Owner","unused","owner"]);
       const result = await sendInvitation(email, "editor", "Welcome", "/admin");
       const first = result.preview!.split("/").pop()!;
       expect((await invitationForSetup(first)).role).toBe("editor");
@@ -58,15 +68,16 @@ describe.skipIf(!fixture.socket)("admin studio reports and operations", () => {
       expect(await invitationForSetup(first)).toBeUndefined();
       const second = (await resendInvitation(id, "/admin")).preview!.split("/").pop()!;
       expect(await invitationForSetup(first)).toBeUndefined();
-      await changeMember("invite", id, "analyst");
+      await changeMember(actor.insertId,"invite", id, "owner");
       const attempts = await Promise.allSettled([1,2].map(() => acceptInvitation(second, "Team member", "Private password 1234")));
       expect(attempts.filter(result => result.status === "fulfilled")).toHaveLength(1);
       expect((await sendInvitation(email, "admin", "", "/admin")).text).toContain("active member");
       const [users] = await pool.query<mysql.RowDataPacket[]>("SELECT id,role FROM admins WHERE email=?",[email]);
-      expect(users[0].role).toBe("analyst");
-      await changeMember("member",users[0].id,null);
+      expect(users[0].role).toBe("owner");
+      await changeMember(actor.insertId,"member",users[0].id,"analyst");
+      await changeMember(actor.insertId,"member",users[0].id,null);
       const third = (await sendInvitation(email,"editor","","/admin")).preview!.split("/").pop()!;
-      await changeMember("invite",(await invitationForSetup(third)).id,null);
+      await changeMember(actor.insertId,"invite",(await invitationForSetup(third)).id,null);
       await expect(acceptInvitation(third,"Member","Private password 1234")).rejects.toThrow("unavailable");
     } finally { config.nodeEnv = previousMode; config.resend.apiKey = previousKey; }
   });
@@ -92,6 +103,88 @@ describe.skipIf(!fixture.socket)("admin studio reports and operations", () => {
       vi.unstubAllGlobals(); vi.unstubAllEnvs(); config.resend.apiKey=key; config.publicBaseUrl=base;
     }
   });
+
+  it("serializes co-owner demotions and protects self access and direct removal", async () => {
+    const ids: number[] = [];
+    for (const email of ["first-owner@example.test","second-owner@example.test"]) {
+      const [row] = await pool.execute<mysql.ResultSetHeader>("INSERT INTO admins (email,name,password_hash,role) VALUES (?,'Owner','unused','owner')",[email]);
+      ids.push(row.insertId);
+    }
+    const [first,second] = ids;
+    await expect(changeMember(first,"member",first,"admin")).rejects.toThrow("own access");
+    await expect(changeMember(first,"member",second,null)).rejects.toThrow("Demote");
+    const attempts = await Promise.allSettled([changeMember(first,"member",second,"editor"),changeMember(second,"member",first,"admin")]);
+    expect(attempts.filter(a => a.status === "fulfilled")).toHaveLength(1);
+    const [owners] = await pool.query<mysql.RowDataPacket[]>("SELECT id FROM admins WHERE id IN (?,?) AND role='owner'",ids);
+    expect(owners).toHaveLength(1);
+    const other = owners[0].id === first ? second : first;
+    await changeMember(owners[0].id,"member",other,"owner");
+  });
+
+  it("renders My account for every role and rotates passwords, links and sessions", async () => {
+    const app = express();
+    app.set("view engine","ejs").set("views","server/views");
+    Object.assign(app.locals,{adminPath:"/admin",basePath:"",adminScriptVersion:"test"});
+    app.use(express.urlencoded({extended:false}),session({secret:"disposable-session-tests",resave:false,saveUninitialized:false}),csrf(),attachCurrentAdmin);
+    app.use("/admin",adminRouter);
+    const old = "Original passphrase", fresh = "Changed passphrase", final = "Recovered passphrase";
+    const hash = await bcrypt.hash(old,4);
+    const csrfOf = (html: string) => html.match(/name="_csrf" value="([^"]+)"/)![1];
+    const apiKey = config.resend.apiKey, base = config.publicBaseUrl;
+    let token = "";
+    vi.stubEnv("EMAIL_FROM","team@example.test");
+    config.resend.apiKey = "fixture";
+    config.publicBaseUrl = "https://studio.example.test/catalog";
+    const send = vi.fn(async (_url: string,init: RequestInit) => {
+      token = String(init.body).match(/reset-password\/([0-9a-f]{64})/)![1];
+      return new Response("{}", {status:200});
+    });
+    vi.stubGlobal("fetch",send);
+    try {
+      for (const role of ["owner","admin","editor","analyst"]) {
+        const email = role+"-account@example.test";
+        const [member] = await pool.execute<mysql.ResultSetHeader>("INSERT INTO admins (email,name,password_hash,role) VALUES (?,'Member',?,?)",[email,hash,role]);
+        const login = async () => {
+          const agent = request.agent(app);
+          const page = await agent.get("/admin/login").expect(200);
+          expect(page.text).toContain("Forgot password?");
+          await agent.post("/admin/login").type("form").send({email,password:old,_csrf:csrfOf(page.text)}).expect(302);
+          return agent;
+        };
+        const client = await login();
+        const page = await client.get("/admin/account").expect(200);
+        expect(page.text).toContain("Change password");
+        if (role !== "owner") continue;
+        const team = await client.get("/admin/team/invite").expect(200);
+        expect(team.text).toContain('value="owner"');
+        const other = await login();
+        const form = {password:fresh,confirmation:fresh,_csrf:csrfOf(page.text)};
+        await client.post("/admin/account").type("form").send({...form,currentPassword:"incorrect"}).expect(400);
+        expect(await requestReset(member.insertId,"/admin")).toBe(true);
+        await client.post("/admin/account").type("form").send({...form,currentPassword:old}).expect(303);
+        expect(await resetAvailable(token)).toBe(false);
+        await client.get("/admin/account").expect(200);
+        await other.get("/admin/account").expect(302);
+        expect(await attemptAdminLogin(email,old)).toBeNull();
+        expect(await requestReset(email,"/admin")).toBe(true);
+        await pool.execute("UPDATE admins SET reset_expires_at=NOW()-INTERVAL 1 SECOND WHERE id=?",[member.insertId]);
+        await client.get("/admin/reset-password/"+token).expect(410);
+        send.mockResolvedValueOnce(new Response("{}", {status:422}));
+        expect(await requestReset(email,"/admin")).toBe(false);
+        expect(await resetAvailable(token)).toBe(false);
+        expect(await requestReset(email,"/admin")).toBe(true);
+        await client.get("/admin/reset-password/"+token).expect(200);
+        expect(await attemptAdminLogin(email,fresh)).toBeTruthy();
+        const results = await Promise.allSettled([redeemReset(token,final),redeemReset(token,final)]);
+        expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+        expect(await resetAvailable(token)).toBe(false);
+        await client.get("/admin/account").expect(302);
+        expect(await attemptAdminLogin(email,final)).toBeTruthy();
+      }
+    } finally {
+      vi.unstubAllGlobals(); vi.unstubAllEnvs(); config.resend.apiKey=apiKey; config.publicBaseUrl=base;
+    }
+  },20000);
 
   it("uses stable IDs for duplicate names and keeps an empty report usable", async () => {
     expect((await userDirectory({ search:"Alex" })).items.map(r => r.user_id)).toEqual(["u2","u1"]);

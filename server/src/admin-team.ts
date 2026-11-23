@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { z } from "zod";
+import { checkStudioPassword } from "./studio-password";
 import { pool } from "./db";
 import { config } from "./config";
 import { MediaError } from "./cloudflare";
@@ -9,7 +10,7 @@ import { inviteRoles, type InviteRole } from "./studio-access";
 
 export function inviteRole(value: unknown): InviteRole {
   const result = z.enum(inviteRoles).safeParse(value);
-  if (!result.success) throw new MediaError(400, "Choose Admin, Editor or Analyst.");
+  if (!result.success) throw new MediaError(400, "Choose Owner, Admin, Editor or Analyst.");
   return result.data;
 }
 export function emailsFrom(input: unknown) {
@@ -85,7 +86,7 @@ export async function sendInvitation(email: string, role: InviteRole, message: s
     );
     if (members.length) {
       await db.rollback();
-      return {email, text:"Already an active member"};
+      return {email, text:"Already an active member. Use Edit access."};
     }
     id = insert.insertId;
     await db.commit();
@@ -119,7 +120,7 @@ export async function invitationForSetup(token: string) {
 
 export async function acceptInvitation(token: string, name: string, password: string) {
   if (!name || [...name].length > 120) throw new MediaError(400,"Enter a name of 1 to 120 characters.");
-  if ([...password].length < 12 || Buffer.byteLength(password) > 72) throw new MediaError(400,"Use at least 12 characters and at most 72 bytes for your password.");
+  checkStudioPassword(password);
   if (!await invitationForSetup(token)) throw invalidLink();
   const passwordHash = await bcrypt.hash(password,12);
   const db = await pool.getConnection();
@@ -147,14 +148,29 @@ export async function acceptInvitation(token: string, name: string, password: st
   } finally { db.release(); }
 }
 
-export async function changeMember(kind: string, id: number, role: InviteRole | null) {
-  let sql: string;
-  if (kind === "member") {
-    sql = role ? "UPDATE admins SET role=? WHERE id=? AND is_active=1 AND role<>'owner'"
-      : "UPDATE admins SET is_active=0,session_version=session_version+1 WHERE id=? AND is_active=1 AND role<>'owner'";
-  } else if (kind === "invite") {
-    sql = role ? "UPDATE admin_invitations SET role=? WHERE id=?" : "DELETE FROM admin_invitations WHERE id=?";
-  } else throw new MediaError(400,"Invalid team member.");
-  const [result] = await pool.execute<ResultSetHeader>(sql,role ? [role,id] : [id]);
-  if (!result.affectedRows) throw new MediaError(409,"This member is protected or has changed. Refresh the team page.");
+export async function changeMember(actorId: number, kind: string, id: number, role: InviteRole | null) {
+  const db = await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    // Lock both accounts in primary-key order so mutually demoting Owners cannot both succeed.
+    const [members] = await db.execute<RowDataPacket[]>(
+      "SELECT id,role FROM admins FORCE INDEX (PRIMARY) WHERE id IN (?,?) AND is_active=1 ORDER BY id FOR UPDATE",
+      [actorId, kind === "member" ? id : actorId]);
+    if (members.find(m => m.id === actorId)?.role !== "owner") throw new MediaError(403,"Owner access required.");
+    let sql: string;
+    if (kind === "member") {
+      if (actorId === id) throw new MediaError(409,"You cannot change your own access.");
+      if (!role && members.find(m => m.id === id)?.role === "owner") throw new MediaError(409,"Demote this Owner before removal.");
+      sql = role ? "UPDATE admins SET role=? WHERE id=? AND is_active=1"
+        : "UPDATE admins SET is_active=0,session_version=session_version+1,reset_token_hash=NULL,reset_expires_at=NULL WHERE id=? AND is_active=1";
+    } else if (kind === "invite") {
+      sql = role ? "UPDATE admin_invitations SET role=? WHERE id=?" : "DELETE FROM admin_invitations WHERE id=?";
+    } else throw new MediaError(400,"Invalid team member.");
+    const [result] = await db.execute<ResultSetHeader>(sql,role ? [role,id] : [id]);
+    if (!result.affectedRows) throw new MediaError(409,"Member changed. Refresh the team page.");
+    await db.commit();
+  } catch (error) {
+    await db.rollback();
+    throw error;
+  } finally { db.release(); }
 }

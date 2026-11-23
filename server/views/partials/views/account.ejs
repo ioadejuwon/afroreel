@@ -1,0 +1,9 @@
+<section class="view active studio-page">
+<header class="studio-heading"><h1>My account</h1><p><%= admin.email %></p></header>
+<section class="studio-panel fields-pane"><h2>Change password</h2>
+<% if (saved) { %><p role="status">Password updated. Your other sessions have been signed out.</p><% } %>
+<% if (formError) { %><p class="auth-error" role="alert"><%= formError %></p><% } %>
+<form method="post" class="auth-form"><input type="hidden" name="_csrf" value="<%= csrfToken %>">
+<label>Current password<input type="password" name="currentPassword" autocomplete="current-password" required></label>
+<%- include('../new-password') %>
+<button class="primary-button">Change password</button></form></section></section>

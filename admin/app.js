@@ -56,6 +56,11 @@ document.querySelectorAll("[data-team-edit]").forEach(button => {
     form.elements.role.value = role;
     form.dispatchEvent(new Event("change"));
     const remove = form.querySelector("[data-remove]");
+    remove.hidden = kind === "member" && role === "owner";
+    const reset = form.querySelector("[data-reset]");
+    reset.hidden = kind !== "member";
+    reset.formAction = path + "/reset";
+    form.dataset.recipient = email;
     remove.formAction = path + "/remove";
     remove.textContent = kind === "invite" ? "Revoke invitation" : "Remove from team";
     form.querySelector("[data-team-person]").textContent = name + " · " + email;
@@ -105,6 +110,14 @@ document.querySelectorAll("[data-team-emails]").forEach(input => {
   form.addEventListener("submit", event => {
     commit();
     if (!values.size) { event.preventDefault(); input.reportValidity(); }
+  });
+});
+
+document.querySelectorAll("[data-team-form]").forEach(form => {
+  form.addEventListener("submit", event => {
+    if (event.defaultPrevented || event.submitter?.matches("[data-remove],[data-reset]") || form.elements.role.value !== "owner") return;
+    const recipients = form.elements.emails?.value || form.dataset.recipient;
+    if (!window.confirm("Grant Owner access to " + recipients + "? They can grant ownership and demote other Owners.")) event.preventDefault();
   });
 });
 

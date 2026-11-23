@@ -9,6 +9,7 @@ import type { AdminSessionUser, MobileSessionUser } from "./types";
 interface AdminCredentialsRow {
   id: number;
   password_hash: string;
+  session_version: number;
 }
 
 interface AdminRow extends AdminSessionUser {}
@@ -35,7 +36,7 @@ type MobileUserRow = RowDataPacket & {
 const mobileTokenTtlSeconds = 60 * 15;
 const refreshTokenTtlSeconds = 60 * 60 * 24 * 30;
 
-function normalizeBcryptHash(hash: string): string {
+export function normalizeBcryptHash(hash: string): string {
   return hash.startsWith("$2y$") ? `$2b$${hash.slice(4)}` : hash;
 }
 
@@ -189,7 +190,7 @@ export async function findCurrentAdmin(adminId: number): Promise<AdminSessionUse
 export async function attemptAdminLogin(email: string, password: string): Promise<AdminSessionUser | null> {
   const normalizedEmail = email.trim().toLowerCase();
   const [rows] = await pool.execute<RowDataPacket[]>(
-    "SELECT id, password_hash FROM admins WHERE email = ? AND is_active = 1 LIMIT 1",
+    "SELECT id, password_hash, session_version FROM admins WHERE email = ? AND is_active = 1 LIMIT 1",
     [normalizedEmail],
   );
   const credentials = rows[0] as AdminCredentialsRow | undefined;
@@ -206,7 +207,8 @@ export async function attemptAdminLogin(email: string, password: string): Promis
 
   await pool.execute("UPDATE admins SET last_login_at = NOW() WHERE id = ?", [credentials.id]);
 
-  return findCurrentAdmin(credentials.id);
+  const current = await findCurrentAdmin(credentials.id);
+  return current?.session_version === credentials.session_version ? current : null;
 }
 
 export async function findCurrentMobileUser(userId: string): Promise<MobileSessionUser | null> {

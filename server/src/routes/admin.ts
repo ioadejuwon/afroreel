@@ -38,10 +38,12 @@ import { buildDashboardCatalog, buildUploadList, getDashboardAudience } from "..
 import { posterUrl, videoUploadResponse } from "../media";
 import { saveLocalVideoStream, savePosterDataUrl } from "../uploads";
 
+import { passwordRouter, accountRoutes } from "./studio-password";
 import { teamRoutes } from "./team";
 import { canOpenView, permissions, studioHome } from "../studio-access";
 
 export const adminRouter = Router();
+adminRouter.use(passwordRouter, accountRoutes(renderAdmin));
 adminRouter.use(teamRoutes(renderAdmin));
 
 function accessTo(view: string) {
@@ -60,6 +62,7 @@ function adminPath(req: Request, suffix = ""): string {
 function renderLogin(req: Request, res: Response, error = ""): void {
   res.render("login", {
     admin: req.admin ?? null,
+    passwordUpdated: req.query.password === "updated",
     csrfToken: req.csrfToken(),
     error,
   });

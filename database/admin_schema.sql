@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS admins (
   role ENUM('owner','admin','editor','analyst') NOT NULL DEFAULT 'admin',
   last_active_at DATETIME NULL,
   session_version INT UNSIGNED NOT NULL DEFAULT 1,
-  owner_slot TINYINT GENERATED ALWAYS AS (IF(role='owner',1,NULL)) STORED UNIQUE,
+  reset_token_hash CHAR(64) CHARACTER SET ascii NULL UNIQUE,
+  reset_expires_at DATETIME NULL,
   last_login_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -24,7 +25,7 @@ CREATE TABLE IF NOT EXISTS admins (
 CREATE TABLE IF NOT EXISTS admin_invitations (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(190) NOT NULL UNIQUE,
-  role ENUM('admin','editor','analyst') NOT NULL,
+  role ENUM('admin','editor','analyst','owner') NOT NULL,
   message VARCHAR(1000) NOT NULL DEFAULT '',
   token_hash CHAR(64) CHARACTER SET ascii NOT NULL UNIQUE,
   expires_at DATETIME NOT NULL,

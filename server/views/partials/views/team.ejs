@@ -2,9 +2,10 @@
 <header class="library-heading"><div><h1>Admin team</h1><p>Everyone who can sign in to this admin studio, and what they can do.</p></div>
 <a class="primary-button" href="<%= adminPath %>/team/invite"><svg class="icon"><use href="#i-plus"/></svg>Invite admin</a></header>
 <% if (saved) { %><p role="status">Team updated.</p><% } %>
-<% if (results.length) { %><section class="studio-panel" aria-label="Invitation results"><h2>Invitation results</h2><ul>
-<% for (const result of results) { %><li><strong><%= result.email %></strong> · <%= result.text %>
+<% if (results.length) { %><section class="studio-panel" aria-label="Team updates"><h2>Team updates</h2><ul>
+<% for (const result of results) { %><li><% if (result.email) { %><strong><%= result.email %></strong> ·<% } %> <%= result.text %>
 <% if (result.preview) { %><a href="<%= result.preview %>" target="_blank" rel="noreferrer">Open local setup preview</a><% } %>
+<% if (result.resetRetryId) { %><form class="team-inline" method="post" action="<%= adminPath %>/team/member/<%= result.resetRetryId %>/reset"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="ghost-button">Retry password reset</button></form><% } %>
 <% if (result.retryId) { %><form class="team-inline" method="post" action="<%= adminPath %>/team/invite/<%= result.retryId %>/resend"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="ghost-button">Retry</button></form><% } %></li><% } %>
 </ul></section><% } %>
 <% const active = members.filter(m => m.kind === 'member').length; %>
@@ -17,12 +18,12 @@ for (const m of filtered) { const path = adminPath + '/team/' + m.kind + '/' + m
 <div><strong><%= m.name %></strong><small><%= m.email %></small></div></div><span class="role-name"><%= m.role %></span>
 <span class="show-badge <%= m.kind === 'member' ? 'live' : 'processing' %>"><%= m.status %></span>
 <span class="team-activity"><%= m.activity ? new Date(m.activity).toLocaleDateString('en',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}) : 'Not signed in yet' %></span>
-<div class="team-controls"><% if (m.role === 'owner') { %><small>Owner access can’t be changed</small><% } else { %>
+<div class="team-controls"><% if (m.kind === 'member' && m.id === admin.id) { %><small>Your Owner account</small><% } else { %>
 <button class="ghost-button" type="button" data-team-edit data-path="<%= path %>" data-name="<%= m.name %>" data-email="<%= m.email %>" data-role="<%= m.role %>" data-kind="<%= m.kind %>">Edit access</button>
 <% if (m.kind === 'invite') { %><form method="post" action="<%= path %>/resend"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="ghost-button"><%= m.status === 'Delivery failed' ? 'Retry' : 'Resend' %></button></form><% } %><% } %></div></article><% } %>
 <% if (!filtered.length) { %><p class="empty-card">No members in this view.</p><% } %></div>
 <dialog class="team-drawer" aria-labelledby="team-edit-title"><form method="post" data-team-form>
 <header><div><h2 id="team-edit-title">Edit access</h2><p data-team-person></p></div><button type="button" class="ghost-button" data-dismiss aria-label="Close">×</button></header>
-<div class="drawer-body"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><%- include('team-roles') %><%- include('team-permissions') %></div>
+<div class="drawer-body"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><%- include('team-roles') %><%- include('team-permissions') %><button class="ghost-button" data-reset hidden>Send password reset</button></div>
 <footer><button type="submit" class="ghost-button delete-series" data-remove>Remove from team</button><button type="button" class="ghost-button" data-dismiss>Cancel</button><button class="primary-button">Save</button></footer>
 </form></dialog></section>

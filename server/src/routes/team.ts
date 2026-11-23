@@ -6,6 +6,8 @@ import { authRateLimit } from "../security";
 import { permissions, inviteRoles, roleDescriptions, studioHome } from "../studio-access";
 import { acceptInvitation, changeMember, emailsFrom, invitationForSetup, inviteRole, resendInvitation, sendInvitation, teamRows } from "../admin-team";
 
+import { requestReset } from "../studio-password";
+
 type Render = (req: Request, res: Response, options: {initialView: string}) => Promise<void>;
 export function teamRoutes(render: Render) {
   const router = Router();
@@ -61,9 +63,16 @@ export function teamRoutes(render: Render) {
     res.locals.results = [await resendInvitation(Number(req.params.id),res.locals.adminPath)];
     await list(req,res);
   });
+  router.post("/team/member/:id/reset",authRateLimit,async (req,res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0 || id === req.admin!.id) throw new MediaError(400,"Select another active member.");
+    const sent = await requestReset(id,res.locals.adminPath);
+    res.locals.results = [{text:sent ? "Password reset email sent." : "Couldn’t send the password reset email.", resetRetryId:sent ? null : id}];
+    await list(req,res);
+  });
   for (const action of ["access","remove"]) {
     router.post("/team/:kind/:id/" + action,async (req,res) => {
-      await changeMember(String(req.params.kind),Number(req.params.id),action === "remove" ? null : inviteRole(req.body.role));
+      await changeMember(req.admin!.id,String(req.params.kind),Number(req.params.id),action === "remove" ? null : inviteRole(req.body.role));
       res.redirect(303,res.locals.adminPath + "/team?saved=1");
     });
   }

@@ -2,5 +2,5 @@
 <section data-permissions="<%= role %>" <%= role === 'editor' ? '' : 'hidden' %>>
 <h2><%= role[0].toUpperCase()+role.slice(1) %> can</h2><p><%= roleDescriptions[role] %></p>
 <dl class="permission-list">
-<% for (const [area,level] of [['Series and episodes',role === 'analyst' ? 'View' : 'Manage'],['App users',role === 'admin' ? 'Manage' : 'No access'],['Monetization',role === 'admin' ? 'Manage' : 'No access'],['Analytics','View'],['Studio settings',role === 'admin' ? 'Manage' : 'No access'],['Admin team','No access']]) { %>
+<% for (const [area,level] of [['Series and episodes',role === 'analyst' ? 'View' : 'Manage'],['App users',['admin','owner'].includes(role) ? 'Manage' : 'No access'],['Monetization',['admin','owner'].includes(role) ? 'Manage' : 'No access'],['Analytics','View'],['Studio settings',['admin','owner'].includes(role) ? 'Manage' : 'No access'],['Admin team',role === 'owner' ? 'Manage' : 'No access']]) { %>
 <div><dt><%= area %></dt><dd data-level="<%= level %>"><%= level %></dd></div><% } %></dl></section><% } %>
