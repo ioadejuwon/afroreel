@@ -1,0 +1,21 @@
+<section class="view active studio-page">
+<% if (!selectedSeries || !selectedEpisode) { %><p class="empty-card">Episode not found in this series.</p><% } else {
+const detail = adminPath + '/series/' + selectedSeries.series_id;
+const values = episodeEditValues || {};
+const number = values.episodeNumber ?? String(selectedEpisode.episode_number);
+const accessChoice = values.access ?? (selectedEpisode.is_free ? 'free' : 'locked');
+const cost = values.coinCost ?? (selectedEpisode.is_free ? '' : String(selectedEpisode.coin_cost));
+%>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="<%= adminPath %>/series">Series</a> / <a href="<%= detail %>"><%= selectedSeries.title %></a> / <span>Edit episode</span></nav>
+<header class="studio-heading"><h1>Edit episode details</h1><p>Episode <span data-number-preview><%= number %></span> of <%= selectedSeries.title %></p></header>
+<form method="post" action="<%= detail %>/episodes/<%= selectedEpisode.episode_id %>/edit" class="studio-grid episode-grid" data-episode-edit-form data-series-access="<%= selectedSeries.default_episode_access %>">
+<input type="hidden" name="_csrf" value="<%= csrfToken %>">
+<section class="studio-panel fields-pane"><h2>Episode details</h2>
+<% if (episodeFormError) { %><p class="form-error" role="alert"><%= episodeFormError %></p><% } %>
+<div class="field-pair number-title"><label>Number<input type="number" min="1" max="4294967295" required name="episodeNumber" value="<%= number %>"></label><label>Title<input required maxlength="190" name="title" value="<%= values.title ?? selectedEpisode.title %>"></label></div>
+<label>Hook<textarea name="hook" maxlength="500" rows="4" placeholder="The one-line cliffhanger."><%= values.hook ?? selectedEpisode.hook ?? '' %></textarea></label><small>Shown under the title in the app.</small>
+<%- include('series-options',{label:'Access',name:'access',options:[['default','Use series default · '+(selectedSeries.default_episode_access === 'free'?'Free':'Locked')],['free','Free'],['locked','Locked']],current:accessChoice,hint:'Series default applies the current setting once when you save.'}) %>
+<div class="field-pair"><label>Price (coins)<input name="coinCost" type="number" min="0" max="4294967295" value="<%= cost %>" placeholder="<%= defaults.locked_coin_price %>"><small>Only used when the episode is locked.</small></label>
+<label>Release date<input type="date" name="releaseDate" value="<%= values.releaseDate ?? episodeDateValue(selectedEpisode.release_date) %>"><small>Leave empty to release when published.</small></label></div></section>
+<section class="studio-panel video-pane"><h2>Video and publishing</h2><p>Use the episode’s menu on the series page to replace its video or change its publishing status.</p><p>Saving these details updates a live episode immediately. Existing unlocks stay valid.</p></section>
+<footer class="studio-actions"><a class="ghost-button" href="<%= detail %>#episode-<%= selectedEpisode.id %>">Cancel</a><button class="primary-button" type="submit">Save changes</button></footer></form><% } %></section>

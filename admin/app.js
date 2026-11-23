@@ -531,6 +531,20 @@ document.querySelectorAll("[data-episode-create-form]").forEach((form) => {
   });
 });
 
+document.querySelectorAll("[data-episode-edit-form]").forEach((form) => {
+  const number = form.elements.episodeNumber;
+  function updateAccess() {
+    const access = form.elements.access.value;
+    const inherited = form.dataset.seriesAccess;
+    form.elements.coinCost.disabled = access === "free" || (access === "default" && inherited === "free");
+    const preview = document.querySelector("[data-number-preview]");
+    if (preview) preview.textContent = number.value;
+  }
+  form.addEventListener("change", updateAccess);
+  number.addEventListener("input", updateAccess);
+  updateAccess();
+});
+
 document.querySelectorAll("[data-refresh-video]").forEach((button) => {
   button.addEventListener("click", async () => {
     const item = button.closest("[data-episode-id]");

@@ -34,10 +34,11 @@ describe("studio role gates", () => {
 
   it("enforces read-only content access on form and direct-upload endpoints", async () => {
     const app = studio("analyst");
-    for (const route of ["/series/new","/series/1/edit","/series/1/episodes/new"]) {
+    for (const route of ["/series/new","/series/1/edit","/series/1/episodes/new","/series/1/episodes/ep_1/edit"]) {
       await request(app).get("/admin"+route).expect(403);
     }
     for (const route of ["/series","/series/1/edit","/episodes","/episodes/1/delete","/series/1/status",
+      "/series/1/episodes/ep_1/edit",
       "/api/cloudflare/image-upload-url","/api/episodes/1/tus-upload-url","/api/episodes/1/refresh-video"]) {
       await request(app).post("/admin"+route).expect(403);
     }

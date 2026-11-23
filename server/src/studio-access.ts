@@ -23,7 +23,7 @@ export function studioHome(role: AdminRole) {
 
 export function canOpenView(role: AdminRole, view: string) {
   if (["account", "series", "series-detail", "series-preview", "analytics"].includes(view)) return true;
-  if (["episodes", "series-new", "series-edit", "series-episode-new"].includes(view)) return permissions(role).manageContent;
+  if (["episodes", "series-new", "series-edit", "series-episode-new", "series-episode-edit"].includes(view)) return permissions(role).manageContent;
   if (["team", "team-invite"].includes(view)) return permissions(role).manageTeam;
   return permissions(role).manageStudio;
 }

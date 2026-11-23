@@ -9,9 +9,11 @@ import {
   deleteEpisode,
   deleteSeries,
   duplicateSeries,
+  editEpisode,
   editSeries,
   getEpisodeMedia,
   listEpisodes,
+  listEpisodesForSeries,
   listSeries,
   markEpisodeUploadComplete,
   setEpisodeStatus,
@@ -71,6 +73,8 @@ function renderLogin(req: Request, res: Response, error = ""): void {
 async function renderAdmin(req: Request, res: Response, options: {
   status?: number;
   episodeFormError?: string;
+  episodeDetailId?: string;
+  episodeEditValues?: Record<string, string>;
   initialView?: string;
   seriesDetailId?: string;
   userId?: string;
@@ -83,7 +87,7 @@ async function renderAdmin(req: Request, res: Response, options: {
   const [series, episodes, audience, defaults, monetization] = await Promise.all([
     needsSeries ? listSeries(true) : [], listEpisodes(true),
     initialView === "dashboard" ? getDashboardAudience() : null,
-    ["episodes", "series-episode-new", "settings"].includes(initialView) ? episodeDefaults() : null,
+    ["episodes", "series-episode-new", "series-episode-edit", "settings"].includes(initialView) ? episodeDefaults() : null,
     initialView === "settings" ? monetizationSettings() : null,
   ]);
   const query = req.query;
@@ -113,8 +117,12 @@ async function renderAdmin(req: Request, res: Response, options: {
     ? series.find((item) => item.series_id === options.seriesDetailId || String(item.id) === options.seriesDetailId) ?? null
     : null;
   const selectedEpisodes = selectedSeries ? episodes.filter((episode) => episode.series_id === selectedSeries.id) : [];
+  const selectedEpisode = options.episodeDetailId
+    ? selectedEpisodes.find((episode) => episode.episode_id === options.episodeDetailId) ?? null
+    : null;
 
-  res.set("Cache-Control", "private, no-store").status(options.status ?? (options.seriesDetailId && !selectedSeries ? 404 : 200)).render("admin", {
+  res.set("Cache-Control", "private, no-store").status(options.status ??
+    (options.seriesDetailId && !selectedSeries || options.episodeDetailId && !selectedEpisode ? 404 : 200)).render("admin", {
     admin: req.admin,
     access: permissions(req.admin!.role),
     csrfToken: req.csrfToken(),
@@ -131,6 +139,7 @@ async function renderAdmin(req: Request, res: Response, options: {
     } as Record<string,string>)[value] ?? value,
     catalogSearch: initialView === "series" ? stringParam("q") : "",
     saved: query.saved === "1",
+    savedEpisodeId: stringParam("savedEpisode"),
     formError: options.formError ?? "",
     pageHref: (overrides: Record<string, string | number>) => {
       const params = new URLSearchParams();
@@ -149,6 +158,11 @@ async function renderAdmin(req: Request, res: Response, options: {
       ? adminPath(req, `/series/${encodeURIComponent(row.series_id)}#episode-${row.episode_db_id}`) : null,
     selectedSeries,
     selectedEpisodes,
+    selectedEpisode,
+    episodeEditValues: options.episodeEditValues ?? null,
+    episodeDateValue: (value: Date | string | null) => value instanceof Date
+      ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
+      : String(value ?? "").slice(0, 10),
     posterUrl,
     videoUploadResponse,
     pollStreamLocally: config.nodeEnv === "development",
@@ -235,6 +249,14 @@ adminRouter.get("/series/:seriesId", accessTo("series-detail"), async (req, res,
 
 adminRouter.get("/series/:seriesId/episodes/new", accessTo("series-edit"), async (req, res) => {
   await renderAdmin(req, res, { initialView: "series-episode-new", seriesDetailId: String(req.params.seriesId) });
+});
+
+adminRouter.get("/series/:seriesId/episodes/:episodeId/edit", accessTo("series-episode-edit"), async (req, res) => {
+  await renderAdmin(req, res, {
+    initialView: "series-episode-edit",
+    seriesDetailId: String(req.params.seriesId),
+    episodeDetailId: String(req.params.episodeId),
+  });
 });
 
 for (const page of ["edit", "preview"]) {
@@ -441,6 +463,59 @@ adminRouter.post("/episodes", accessTo("series-edit"), async (req, res, next) =>
   }
 });
 
+adminRouter.post("/series/:seriesId/episodes/:episodeId/edit", accessTo("series-episode-edit"), async (req, res, next) => {
+  const seriesId = String(req.params.seriesId);
+  const episodeId = String(req.params.episodeId);
+  try {
+    const series = (await listSeries(true)).find(item => item.series_id === seriesId);
+    const episode = series && (await listEpisodesForSeries(series.id, true))
+      .find(item => item.episode_id === episodeId);
+    if (!series || !episode) {
+      res.status(404).send("Episode not found in this series.");
+      return;
+    }
+
+    const values = episodeEditFormValues(req.body);
+    const episodeNumber = validEpisodeNumber(values.episodeNumber);
+    if (!values.title || Array.from(values.title).length > 190) {
+      throw new MediaError(400, "Enter an episode title of no more than 190 characters.");
+    }
+    if (Array.from(values.hook).length > 500) {
+      throw new MediaError(400, "The hook must be no more than 500 characters.");
+    }
+    if (!["default", "free", "locked"].includes(values.access)) {
+      throw new MediaError(400, "Choose a valid access rule.");
+    }
+    if (values.releaseDate && !validEpisodeDate(values.releaseDate)) {
+      throw new MediaError(400, "Enter a valid release date.");
+    }
+
+    await editEpisode(episode.id, series.id, {
+      episodeNumber,
+      title: values.title,
+      hook: values.hook,
+      ...await seriesEpisodeAccess(series.id, episodeNumber, values),
+      releaseDate: values.releaseDate || null,
+    });
+    res.redirect(adminPath(req, `/series/${series.series_id}?savedEpisode=${episode.id}#episode-${episode.id}`));
+  } catch (error) {
+    const message = error instanceof MediaError && error.status === 400
+      ? error.message : episodeCreateErrorMessage(error);
+    if (message) {
+      await renderAdmin(req, res, {
+        status: 400,
+        initialView: "series-episode-edit",
+        seriesDetailId: seriesId,
+        episodeDetailId: episodeId,
+        episodeEditValues: episodeEditFormValues(req.body),
+        episodeFormError: message,
+      });
+      return;
+    }
+    next(error);
+  }
+});
+
 adminRouter.post("/series/:seriesId/status", accessTo("series-edit"), async (req, res, next) => {
   try {
     const seriesId = paramNumber(req.params.seriesId);
@@ -605,6 +680,24 @@ function stringBody(value: unknown): string {
 function numberBody(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number.parseInt(typeof value === "string" ? value : "", 10);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function episodeEditFormValues(body: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(["episodeNumber", "title", "hook", "access", "coinCost", "releaseDate"]
+    .map(key => [key, stringBody(body[key])]));
+}
+
+function validEpisodeNumber(value: string): number {
+  if (!/^[1-9]\d*$/.test(value) || Number(value) > 4294967295) {
+    throw new MediaError(400, "Enter a positive whole episode number.");
+  }
+  return Number(value);
+}
+
+function validEpisodeDate(value: string): boolean {
+  if (!/^[1-9]\d{3}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function paramNumber(value: string | string[] | undefined): number {

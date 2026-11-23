@@ -681,6 +681,29 @@ export async function createEpisode(input: {
   });
 }
 
+export async function editEpisode(episodeId: number, seriesId: number, input: {
+  episodeNumber: number;
+  title: string;
+  hook: string;
+  isFree: boolean;
+  coinCost: number;
+  releaseDate: string | null;
+}): Promise<void> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    `UPDATE episodes
+        SET episode_number = ?, title = ?, hook = ?, is_free = ?, coin_cost = ?, release_date = ?
+      WHERE id = ? AND series_id = ?`,
+    [input.episodeNumber, input.title, input.hook || null, input.isFree ? 1 : 0,
+      input.coinCost, input.releaseDate, episodeId, seriesId],
+  );
+  if (!result.affectedRows) {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      "SELECT id FROM episodes WHERE id = ? AND series_id = ? LIMIT 1", [episodeId, seriesId],
+    );
+    if (!rows.length) throw new MediaError(404, "Episode not found in this series.");
+  }
+}
+
 export async function getEpisodeDatabaseId(episodeIdentifier: string | number): Promise<number | null> {
   const numericEpisodeId = Number.parseInt(String(episodeIdentifier), 10);
   const fallbackEpisodeId = Number.isNaN(numericEpisodeId) ? 0 : numericEpisodeId;
