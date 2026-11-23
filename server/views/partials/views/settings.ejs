@@ -1,21 +1,38 @@
 <section class="view active admin-report" id="settings" aria-labelledby="settings-title">
-  <header class="library-heading"><div><h1 id="settings-title">Settings</h1><p>Set the default price for locked episodes.</p></div></header>
-  <section class="dashboard-panel report-panel settings-panel"><header><h2>Episode defaults</h2></header>
+  <header class="library-heading"><div><h1 id="settings-title">Settings</h1><p>Choose the default price for locked episodes and how viewers can unlock them.</p></div></header>
+  <section class="dashboard-panel report-panel settings-panel">
     <form method="post" action="<%= adminPath %>/settings" class="defaults-form">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>"/>
       <input type="hidden" name="freeOpening" value="<%= defaults.free_opening_episodes %>" />
-      <label>Default locked episode price (coins)<input name="lockedPrice" type="number" min="0" max="4294967295" required value="<%= defaults.locked_coin_price %>" />
-        <small>You can override access and price when adding an episode.</small></label>
-      <fieldset>
-        <legend>Monetization availability</legend>
-        <label><input name="monetizationEnabled" type="checkbox" <%- monetization.monetization_enabled ? "checked" : "" %> /> Enable purchases and unlocks</label>
-        <label><input name="adUnlockEnabled" type="checkbox" <%- monetization.ad_unlock_enabled ? "checked" : "" %> /> Enable AdMob episode unlocks</label>
-        <label>Ad unlocks per rolling 24 hours<input name="dailyAdUnlockLimit" type="number" min="0" max="100" required value="<%= monetization.daily_ad_unlock_limit %>" />
-          <small>This limit is enforced by the server after AdMob verification.</small></label>
-      </fieldset>
+      <section class="settings-section" aria-labelledby="locked-defaults-title">
+        <header><h2 id="locked-defaults-title">Locked episode defaults</h2><p>Set the price used when an episode is marked as locked.</p></header>
+        <div class="settings-field">
+          <label for="locked-price">Default locked episode price</label>
+          <div class="settings-number"><input id="locked-price" name="lockedPrice" type="number" min="0" max="4294967295" required value="<%= defaults.locked_coin_price %>" /><span>coins</span></div>
+          <small>You can override the access and price for an individual episode.</small>
+        </div>
+      </section>
+      <section class="settings-section unlock-settings" aria-labelledby="unlock-options-title">
+        <header><h2 id="unlock-options-title">Viewer unlock options</h2><p>Control which ways viewers can unlock paid episodes.</p></header>
+        <label class="settings-switch-row" for="monetization-enabled">
+          <span class="settings-switch-copy"><strong>Coin purchases and paid unlocks</strong><small>Allow viewers to buy coins and spend them on locked episodes.</small></span>
+          <span class="settings-switch-control"><input id="monetization-enabled" name="monetizationEnabled" type="checkbox" role="switch" <%- monetization.monetization_enabled ? "checked" : "" %> /><span class="settings-switch-track" aria-hidden="true"></span></span>
+        </label>
+        <div class="settings-option">
+          <label class="settings-switch-row" for="ad-unlock-enabled">
+            <span class="settings-switch-copy"><strong>Watch an ad to unlock</strong><small>Let viewers unlock a locked episode after a verified AdMob reward.</small></span>
+            <span class="settings-switch-control"><input id="ad-unlock-enabled" name="adUnlockEnabled" type="checkbox" role="switch" <%- monetization.ad_unlock_enabled ? "checked" : "" %> /><span class="settings-switch-track" aria-hidden="true"></span></span>
+          </label>
+          <div class="settings-limit settings-field">
+            <label for="daily-ad-unlock-limit">Maximum ad unlocks per viewer</label>
+            <div class="settings-number"><input id="daily-ad-unlock-limit" name="dailyAdUnlockLimit" type="number" min="0" max="100" required value="<%= monetization.daily_ad_unlock_limit %>" /><span>per 24 hours</span></div>
+            <small>The server enforces this rolling limit after AdMob verifies each reward.</small>
+          </div>
+        </div>
+      </section>
+      <aside class="settings-note"><strong>How availability works</strong><p>Turning off coin purchases stops paid episode unlocks in the app. Ad unlocks are available only when both options above are on.</p></aside>
       <% if (formError) { %><p class="form-error" role="alert"><%= formError %></p><% } %>
-      <% if (saved) { %><p class="save-feedback" role="status">Episode defaults saved.</p><% } %>
-      <button class="primary-button">Save defaults</button>
+      <div class="settings-actions"><button class="primary-button">Save settings</button><% if (saved) { %><p class="save-feedback" role="status">Settings saved.</p><% } %></div>
     </form>
   </section>
 </section>

@@ -1741,9 +1741,9 @@ img.poster {
 .report-tabs a { display: inline-flex; align-items: center; justify-content: center; padding: 9px 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px; }
 .report-tabs a:hover, .report-tabs a[aria-current="page"] { color: var(--gold); border-color: #63502e; background: #272217; }
 .report-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 14px; margin: 18px 0; }
-.report-filters label, .defaults-form label { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 14px; }
+.report-filters label, #settings .settings-field { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 14px; }
 .report-filters .wide-field { flex: 1 1 230px; }
-.report-filters :is(input:not([type="hidden"]), select), .defaults-form input[type="number"] {
+.report-filters :is(input:not([type="hidden"]), select), #settings input[type="number"] {
   min-width: 0; min-height: 42px; max-width: 100%; padding: 8px 12px; border: 1px solid #40413a;
   border-radius: 10px; color: var(--text); background: #11120f; font: inherit; color-scheme: dark;
 }
@@ -1762,7 +1762,7 @@ img.poster {
 .report-columns { display: grid; grid-template-columns: minmax(0, 2fr) minmax(230px, 1fr); gap: 18px; }
 .analytics-metrics, .package-list { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .viewer-chart .untracked { background: repeating-linear-gradient(135deg,transparent,transparent 4px,#33342f 5px,#33342f 6px); }
-.report-note, .defaults-form small { font-size: 13px; line-height: 1.5; margin: 10px 0 0; }
+.report-note, #settings small { font-size: 13px; line-height: 1.5; }
 .daily-details summary { cursor: pointer; font-weight: 650; }
 .activity-row, .record-details > div { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; padding: 12px 0; border-top: 1px solid var(--line); }
 .record-details { margin: 0; }
@@ -1775,10 +1775,42 @@ img.poster {
 .profile-metrics .date-value { font-size: 17px; line-height: 1.4; }
 .access-form label { display: block; }
 .access-form input { display: block; margin-top: 8px; }
-.settings-panel { max-width: 720px; }
-.defaults-form { display: grid; justify-items: start; gap: 20px; }
-.defaults-form input { width: 140px; }
-.defaults-form small { margin: 0; }
+.settings-panel { max-width: 780px; padding: 0; overflow: hidden; }
+.defaults-form { display: grid; }
+.settings-section { min-width: 0; margin: 0; padding: 26px 28px; border: 0; }
+.settings-section + .settings-section { border-top: 1px solid var(--line); }
+.settings-section > header { display: block; margin-bottom: 20px; }
+.settings-section h2 { margin: 0; color: var(--text); font-size: 19px; font-weight: 700; letter-spacing: -.015em; }
+.settings-section header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.settings-field > label { color: var(--text); font-weight: 650; }
+.settings-number { display: flex; align-items: center; width: fit-content; max-width: 100%; min-height: 44px; overflow: hidden; border: 1px solid #40413a; border-radius: 11px; background: #11120f; }
+#settings .settings-number input[type="number"] { width: 112px; min-height: 42px; border: 0; border-radius: 0; background: transparent; }
+.settings-number:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
+#settings .settings-number input:focus-visible { outline: 0; }
+.settings-number span { align-self: stretch; display: flex; align-items: center; padding: 0 13px; border-left: 1px solid #34352f; color: var(--muted); font-size: 13px; white-space: nowrap; }
+#settings small { display: block; margin: 0; color: var(--muted); }
+.unlock-settings { display: block; }
+.settings-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 76px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 13px; background: #141510; cursor: pointer; }
+.settings-switch-row:hover { border-color: #4c4d42; background: #181914; }
+.settings-switch-copy { min-width: 0; }
+.settings-switch-copy strong { display: block; color: var(--text); font-size: 15px; line-height: 1.35; }
+.settings-switch-copy small { margin-top: 4px; }
+.settings-switch-control { position: relative; flex: 0 0 auto; }
+.settings-switch-control input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.settings-switch-track { position: relative; display: block; width: 48px; height: 28px; border: 1px solid #53554b; border-radius: 999px; background: #292a25; transition: background .18s ease, border-color .18s ease; }
+.settings-switch-track::after { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #a8a99f; content: ""; transition: transform .18s ease, background .18s ease; }
+.settings-switch-control input:checked + .settings-switch-track { border-color: var(--gold); background: var(--gold); }
+.settings-switch-control input:checked + .settings-switch-track::after { background: #171815; transform: translateX(20px); }
+.settings-switch-control input:focus-visible + .settings-switch-track { outline: 2px solid var(--gold); outline-offset: 3px; }
+.settings-option { margin-top: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #141510; }
+.settings-option .settings-switch-row { border: 0; border-radius: 0; background: transparent; }
+.settings-option .settings-switch-row:hover { background: #181914; }
+.settings-limit { margin: 0 18px; padding: 17px 0 18px; border-top: 1px solid var(--line); }
+.settings-note { margin: 0 28px 24px; padding: 15px 17px; border: 1px solid #4b422d; border-radius: 12px; background: #211d14; }
+.settings-note strong { color: var(--gold); font-size: 14px; }
+.settings-note p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.settings-actions { display: flex; align-items: center; gap: 16px; padding: 0 28px 28px; }
+.settings-actions .save-feedback { margin: 0; }
 .save-feedback { color: #95d398; }
 #episodes .panel, #series-detail .panel { background: #171815; border-radius: 16px; }
 @media (max-width: 760px) {
@@ -1791,4 +1823,17 @@ img.poster {
   .records { min-width: 510px; }
   .record-details > div { flex-wrap: wrap; gap: 6px; }
   .record-details dd { text-align: left; }
+  .settings-section { padding: 22px 20px; }
+  .settings-note { margin: 0 20px 22px; }
+  .settings-actions { padding: 0 20px 22px; }
+  .settings-switch-row { align-items: flex-start; min-height: 0; }
+  .settings-switch-control { margin-top: 2px; }
+}
+@media (max-width: 460px) {
+  .settings-switch-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 15px; }
+  .settings-limit { margin: 0 15px; }
+  .settings-number { width: 100%; }
+  #settings .settings-number input[type="number"] { flex: 1; width: 100%; }
+  .settings-actions { align-items: flex-start; flex-direction: column; }
+  .settings-actions .primary-button { width: 100%; }
 }
